@@ -13,11 +13,15 @@ IAAC/
 ├── .env                      # Environment variables (local)
 ├── .gitignore                # Git ignore rules
 ├── README.md                 # This file
+├── suggestions.txt           # Infrastructure improvement suggestions
 └── terraform/                # Infrastructure as Code
     ├── backend.tf            # Terraform backend configuration (S3)
     ├── main.tf               # Infrastructure configuration
-    ├── provider.tf           # AWS provider
-    ├── variables.tf          # Variable declarations
+    ├── provider.tf           # AWS provider with dynamic AMI data source
+    ├── variables.tf          # Variable declarations with workspace defaults
+    ├── WORKSPACES.md         # Detailed workspace documentation
+    ├── workspaces.ps1        # PowerShell workspace management script
+    ├── workspaces.sh         # Bash workspace management script
     ├── terraform.tfvars      # Default (dev) environment values
     ├── prod.tfvars           # Production environment values
     ├── test.tfvars           # Test environment values
@@ -107,69 +111,131 @@ Create `%USERPROFILE%\.aws\config`:
 region = us-east-1
 ```
 
-### Terraform Workflow
+### Terraform Workflow with Workspaces
+
+This project uses **Terraform Workspaces** for scalable multi-environment management. Each workspace has its own isolated state.
 
 ```bash
 # Navigate to terraform directory
 cd terraform
 
-# Initialize Terraform (downloads providers and initializes modules)
+# Create workspaces
+terraform workspace new dev
+terraform workspace new prod
+terraform workspace new test
+
+# List all workspaces
+terraform workspace list
+
+# Select a workspace
+terraform workspace select dev
+
+# Initialize Terraform
 terraform init
 
 # Plan infrastructure changes
 terraform plan
 
-# Apply with default (dev) environment
+# Apply to current workspace
 terraform apply
 
-# Apply with specific environment
-terraform apply -var-file=prod.tfvars
-terraform apply -var-file=test.tfvars
+# Apply with environment-specific variables
+terraform apply -var-file=dev.tfvars
 
-# Destroy infrastructure
-terraform destroy -var-file=prod.tfvars
+# Switch and deploy to another workspace
+terraform workspace select prod
+terraform apply -var="instance_type=t3.large"
+
+# Destroy resources in current workspace
+terraform destroy
+```
+
+**Using the Workspace Management Script (PowerShell):**
+```powershell
+# Initialize all workspaces at once
+.\workspaces.ps1 -Action init-all
+
+# List workspaces
+.\workspaces.ps1 -Action list
+
+# Select and deploy
+.\workspaces.ps1 -Action select -Name prod
+.\workspaces.ps1 -Action deploy -VarFile prod.tfvars
+
+# Show outputs
+.\workspaces.ps1 -Action output
+```
+
+**Using the Workspace Management Script (Bash):**
+```bash
+chmod +x workspaces.sh
+
+# Initialize all workspaces at once
+./workspaces.sh --action init-all
+
+# List workspaces
+./workspaces.sh --action list
+
+# Select and deploy
+./workspaces.sh --action select --name prod
+./workspaces.sh --action deploy --var-file prod.tfvars
 ```
 
 ### Backend Configuration
 
 Terraform state is stored in an S3 bucket with encryption enabled:
 - **Bucket**: `aayushmaan-terraform`
-- **Key**: `infrastructure/terraform.tfstate`
+- **Key**: `infrastructure/terraform.tfstate` (per workspace)
 - **Region**: `us-east-1`
 - **Encryption**: Enabled
+- **Locking**: Local file lockfile
 
 **Note:** The S3 bucket must be created manually before running `terraform init`.
 
+### Dynamic AMI Lookup
+
+The infrastructure automatically fetches the latest Ubuntu 24.04 LTS AMI:
+- No hardcoded AMI IDs
+- Always uses the most recent Ubuntu AMI
+- Can override with custom AMI via variable
+
 ### Environment Configuration
 
-Each environment uses a `.tfvars` file to define its values:
+Variables now have smart defaults based on the workspace:
+
+```hcl
+# Automatically uses workspace name
+env_name = terraform.workspace
+
+# Automatically creates server-<workspace>
+server_name = "server-${terraform.workspace}"
+```
+
+You can still override these with `.tfvars` files or CLI variables:
 
 **Development (`terraform.tfvars`):**
 ```hcl
-env_name    = "dev"
-server_name = "test-dev"
+instance_type = "t3.micro"
 ```
 
 **Production (`prod.tfvars`):**
 ```hcl
-env_name    = "prod"
-server_name = "test-prod"
+instance_type = "t3.large"
 ```
 
 **Test (`test.tfvars`):**
 ```hcl
-env_name    = "test"
-server_name = "test-test"
+instance_type = "t3.micro"
 ```
 
 ### Variables
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `env_name` | Environment name for tagging | - |
-| `server_name` | Name tag for EC2 instance | - |
+| `env_name` | Environment name for tagging | `terraform.workspace` (current workspace) |
+| `server_name` | Name tag for EC2 instance | `"server-${terraform.workspace}"` |
 | `instance_type` | EC2 instance type | `t3.micro` |
-| `ami_id` | Ubuntu 24.04 LTS AMI (us-east-1) | `ami-0e2c8caa4b6378d8c` |
+| `ami_id` | Custom AMI ID (optional) | `null` (uses latest Ubuntu AMI) |
 | `key_name` | AWS key pair name | `aayush-test` |
 
 ### Terraform Modules
@@ -240,6 +306,8 @@ curl http://localhost:5000
 - Terraform installed
 
 #### Deployment Steps
+
+**Option A: Manual Workflow**
 ```bash
 # Set up AWS credentials (if not already done)
 aws configure
@@ -247,14 +315,44 @@ aws configure
 # Navigate to terraform directory
 cd terraform
 
-# Initialize Terraform
+# Create and initialize workspaces
+terraform workspace new dev
+terraform workspace new prod
+terraform workspace new test
+
+# Select workspace and initialize
+terraform workspace select dev
 terraform init
 
 # Review the plan
 terraform plan
 
 # Apply infrastructure
-terraform apply -var-file=prod.tfvars
+terraform apply
+
+# Switch to prod and deploy
+terraform workspace select prod
+terraform apply -var="instance_type=t3.large"
+```
+
+**Option B: Using PowerShell Script**
+```powershell
+# Initialize all workspaces and deploy
+.\workspaces.ps1 -Action init-all
+
+# Or manually deploy to specific workspace
+.\workspaces.ps1 -Action select -Name prod
+.\workspaces.ps1 -Action deploy -VarFile prod.tfvars
+```
+
+**Option C: Using Bash Script**
+```bash
+# Initialize all workspaces and deploy
+./workspaces.sh --action init-all
+
+# Or manually deploy to specific workspace
+./workspaces.sh --action select --name prod
+./workspaces.sh --action deploy --var-file prod.tfvars
 ```
 
 ## Setup Instructions
@@ -273,9 +371,12 @@ aws s3api put-bucket-versioning --bucket aayushmaan-terraform --versioning-confi
 
 ## Notes
 
-- The `modules/envs/` folder was removed in favor of using `.tfvars` files for environment management
-- This follows Terraform best practices for multi-environment setups
+- Uses **Terraform Workspaces** for scalable multi-environment management
+- Each workspace has its own isolated state file in S3
+- AMI IDs are fetched dynamically - no hardcoding required
+- See [`terraform/WORKSPACES.md`](terraform/WORKSPACES.md) for detailed workspace documentation
+- Use [`terraform/workspaces.ps1`](terraform/workspaces.ps1) (PowerShell) or [`terraform/workspaces.sh`](terraform/workspaces.sh) (Bash) for workspace management
 - `.gitignore` excludes sensitive `.env` files and `.tfvars` files
 - AWS credentials should never be committed to version control
 - The S3 backend requires the bucket to exist before initialization
-- Use `use_lockfile` instead of deprecated `dynamodb_table` for state locking
+- See [`suggestions.txt`](suggestions.txt) for infrastructure improvement recommendations
