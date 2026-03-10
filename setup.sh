@@ -5,11 +5,11 @@ set -e
 # Get the directory where this script is located
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-# Repository configuration
-REPO_URL="https://github.com/Aayushmaan-shukla/test-IaC.git"
-REPO_DIR="$SCRIPT_DIR/test-IaC"
-CREDENTIALS_DIR="$SCRIPT_DIR/.credentials"
-CREDENTIALS_FILE="$CREDENTIALS_DIR/.git_credentials"
+# Docker Hub configuration
+DOCKER_REGISTRY="${DOCKER_REGISTRY:-docker.io}"
+SECRETS_FILE="$SCRIPT_DIR/secrets"
+ENV_FILE="$SCRIPT_DIR/.env"
+IMAGE_CONFIG_FILE="$SCRIPT_DIR/images.conf"
 
 # Colors for output
 RED='\033[0;31m'
@@ -35,120 +35,149 @@ print_step() {
     echo -e "${BLUE}[STEP]${NC} $1"
 }
 
-# Function to check if credentials exist
-check_credentials() {
-    if [ -f "$CREDENTIALS_FILE" ]; then
+# Function to check if secrets file exists
+check_secrets() {
+    if [ -f "$SECRETS_FILE" ]; then
         return 0
     else
         return 1
     fi
 }
 
-# Function to get GitHub credentials (stores them persistently)
-get_github_credentials() {
-    # Create credentials directory if it doesn't exist
-    mkdir -p "$CREDENTIALS_DIR"
-
-    # Check if credentials already exist
-    if [ -f "$CREDENTIALS_FILE" ]; then
-        print_info "Found existing credentials at $CREDENTIALS_FILE"
-        source "$CREDENTIALS_FILE"
-        echo "$CREDENTIALS_FILE"
+# Function to get Docker Hub credentials
+get_docker_credentials() {
+    if [ -f "$SECRETS_FILE" ]; then
+        print_info "Found existing secrets file at $SECRETS_FILE"
+        source "$SECRETS_FILE"
         return
     fi
 
-    print_info "Please provide your GitHub credentials for cloning the repository"
-    read -p "Enter GitHub username: " username
-    read -s -p "Enter GitHub personal access token (with repo scope): " token
+    print_info "Please provide your Docker Hub credentials"
+    read -p "Enter Docker username: " username
+    read -s -p "Enter Docker password/access token: " password
     echo ""
 
-    # Save credentials to file (with restricted permissions)
-    cat > "$CREDENTIALS_FILE" <<EOF
-export GITHUB_USERNAME="$username"
-export GITHUB_TOKEN="$token"
+    # Save credentials to secrets file (with restricted permissions)
+    cat > "$SECRETS_FILE" <<EOF
+export DOCKER_USERNAME="$username"
+export DOCKER_PASSWORD="$password"
+export DOCKER_REGISTRY="$DOCKER_REGISTRY"
 EOF
-    chmod 600 "$CREDENTIALS_FILE"
+    chmod 600 "$SECRETS_FILE"
 
-    print_info "Credentials saved to: $CREDENTIALS_FILE"
-    echo "$CREDENTIALS_FILE"
+    print_info "Credentials saved to: $SECRETS_FILE"
 }
 
 # Function to load credentials
 load_credentials() {
-    if [ -f "$CREDENTIALS_FILE" ]; then
-        source "$CREDENTIALS_FILE"
+    if [ -f "$SECRETS_FILE" ]; then
+        source "$SECRETS_FILE"
     else
-        print_error "Credentials not found. Please run setup first."
+        print_error "Secrets file not found at $SECRETS_FILE. Please run setup first."
         exit 1
     fi
 }
 
-# Function to clean up temp credentials
-cleanup_credentials() {
-    local temp_dir="$1"
-    if [ -d "$temp_dir" ]; then
-        rm -rf "$temp_dir"
-        print_info "Temporary credentials cleaned up"
+# Function to create default image configuration
+create_default_image_config() {
+    if [ ! -f "$IMAGE_CONFIG_FILE" ]; then
+        cat > "$IMAGE_CONFIG_FILE" <<'EOF'
+# Docker Hub Image Configuration
+# Format: SERVICE_NAME=DOCKER_HUB_IMAGE:TAG
+# Example: APP_IMAGE=archaeaplayground/archaea:latest
+
+# Main application image
+APP_IMAGE=archaeaplayground/archaea:latest
+
+# Optional: Redis image (override if needed)
+# REDIS_IMAGE=redis:7-alpine
+
+# Optional: PostgreSQL image (override if needed)
+# POSTGRES_IMAGE=postgres:16-alpine
+EOF
+        print_info "Created default image configuration at $IMAGE_CONFIG_FILE"
+        print_warning "Please review and customize the image names and tags as needed"
     fi
 }
 
-# Function to prepare clone directory
-prepare_clone_dir() {
-    if [ -d "$REPO_DIR" ]; then
-        print_warning "Directory $REPO_DIR already exists. Removing it..."
-        rm -rf "$REPO_DIR"
-        print_info "Directory $REPO_DIR removed"
+# Function to load image configuration
+load_image_config() {
+    if [ -f "$IMAGE_CONFIG_FILE" ]; then
+        source "$IMAGE_CONFIG_FILE"
+    else
+        create_default_image_config
+        source "$IMAGE_CONFIG_FILE"
     fi
 }
 
-# Function to clone repository
-clone_repo() {
-    local credentials_file="$1"
-    source "$credentials_file"
+# Function to pull specific image from Docker Hub
+pull_docker_image() {
+    local image="$1"
+    load_credentials
 
-    print_info "Cloning repository from $REPO_URL..."
-    git clone "https://${GITHUB_USERNAME}:${GITHUB_TOKEN}@github.com/Aayushmaan-shukla/test-IaC.git" "$REPO_DIR" || {
-        print_error "Failed to clone repository. Please check your credentials."
+    print_info "Pulling image: $image"
+    docker login -u "$DOCKER_USERNAME" --password-stdin "$DOCKER_REGISTRY" <<< "$DOCKER_PASSWORD" 2>/dev/null || true
+    docker pull "$image" || {
+        print_error "Failed to pull image: $image"
+        return 1
+    }
+    print_info "Successfully pulled: $image"
+}
+
+# Function to pull all configured images
+pull_all_images() {
+    load_image_config
+
+    print_info "Pulling Docker Hub images..."
+    echo ""
+
+    # Pull each configured image
+    if [ -n "$APP_IMAGE" ]; then
+        pull_docker_image "$APP_IMAGE"
+    fi
+
+    if [ -n "$REDIS_IMAGE" ]; then
+        pull_docker_image "$REDIS_IMAGE"
+    fi
+
+    if [ -n "$POSTGRES_IMAGE" ]; then
+        pull_docker_image "$POSTGRES_IMAGE"
+    fi
+
+    echo ""
+    print_info "All images pulled successfully"
+}
+
+# Function to login to Docker Hub
+docker_login() {
+    load_credentials
+
+    print_info "Logging in to Docker Hub as $DOCKER_USERNAME..."
+    echo "$DOCKER_PASSWORD" | docker login -u "$DOCKER_USERNAME" --password-stdin "$DOCKER_REGISTRY" || {
+        print_error "Failed to login to Docker Hub. Please check your credentials."
         exit 1
     }
-    print_info "Repository cloned successfully to $REPO_DIR"
+
+    print_info "Successfully logged in to Docker Hub"
 }
 
-# Function to update repository (git pull)
-update_repo() {
-    if [ ! -d "$REPO_DIR" ]; then
-        print_error "Repository not found at $REPO_DIR. Please run 'setup.sh local' first."
+# Function to pull latest images from Docker Hub
+pull_latest_images() {
+    if [ ! -f "$SCRIPT_DIR/docker-compose.yml" ]; then
+        print_error "docker-compose.yml not found in $SCRIPT_DIR"
         exit 1
     fi
 
     load_credentials
 
-    cd "$REPO_DIR"
-    print_info "Updating repository from $REPO_URL..."
+    cd "$SCRIPT_DIR"
 
-    # Configure git to use credentials for this repo
-    git config credential.helper store
-    echo "https://${GITHUB_USERNAME}:${GITHUB_TOKEN}@github.com" > ~/.git-credentials
+    print_info "Pulling latest images from Docker Hub..."
+    print_info "Registry: $DOCKER_REGISTRY"
+    echo ""
 
-    # Fetch and pull
-    git fetch --all
-    git pull origin prod
-
-    print_info "Repository updated successfully"
-}
-
-# Function to setup git and checkout branch
-setup_git() {
-    local repo_dir="$1"
-
-    cd "$repo_dir"
-    print_info "Fetching all branches..."
-    git fetch --all
-
-    print_info "Checking out 'prod' branch..."
-    git checkout prod
-
-    print_info "Git setup completed"
+    # Pull all configured images
+    pull_all_images
 }
 
 # Function to wait for env file confirmation
@@ -167,7 +196,7 @@ wait_for_env_confirmation() {
     fi
 
     while true; do
-        read -p "Have you pasted the .env file? (yes/no): " response
+        read -p "Have you pasted .env file? (yes/no): " response
         case $response in
             [Yy][Ee][Ss])
                 if [ -f "$env_path" ]; then
@@ -219,68 +248,127 @@ setup_server_dependencies() {
 
 # Function to start services
 start_services() {
-    if [ ! -d "$REPO_DIR" ]; then
-        print_error "Repository not found at $REPO_DIR. Please run 'setup.sh local' first."
+    if [ ! -f "$SCRIPT_DIR/docker-compose.yml" ]; then
+        print_error "docker-compose.yml not found in $SCRIPT_DIR"
         exit 1
     fi
 
-    cd "$REPO_DIR"
+    cd "$SCRIPT_DIR"
 
     print_info "Starting services..."
 
+    # Login to Docker Hub
+    docker_login
+
     # Check for docker-compose file
-    if [ -f "docker-compose.yml" ]; then
-        docker-compose up -d
-        print_info "Services started with docker-compose"
-    elif [ -f "deploy.sh" ]; then
+    if [ -f "deploy.sh" ]; then
         print_info "Running deploy.sh..."
         chmod +x deploy.sh
-        ./deploy.sh
+        source "$SECRETS_FILE"
+        load_image_config
+        export DOCKER_USERNAME DOCKER_PASSWORD DOCKER_REGISTRY
+        export APP_IMAGE REDIS_IMAGE POSTGRES_IMAGE
+        ./deploy.sh start
     else
-        print_error "No docker-compose.yml or deploy.sh found"
-        exit 1
+        docker-compose up -d
+        print_info "Services started with docker-compose"
     fi
 }
 
 # Function to rebuild services
 rebuild_services() {
-    if [ ! -d "$REPO_DIR" ]; then
-        print_error "Repository not found at $REPO_DIR. Please run 'setup.sh local' first."
+    if [ ! -f "$SCRIPT_DIR/docker-compose.yml" ]; then
+        print_error "docker-compose.yml not found in $SCRIPT_DIR"
         exit 1
     fi
 
-    cd "$REPO_DIR"
+    cd "$SCRIPT_DIR"
 
     print_info "Rebuilding services..."
 
+    # Login to Docker Hub
+    docker_login
+
+    # Pull latest images first
+    pull_latest_images
+    echo ""
+
     # Check for docker-compose file
-    if [ -f "docker-compose.yml" ]; then
-        docker-compose down
-        docker-compose build
-        docker-compose up -d
-        print_info "Services rebuilt and started"
-    elif [ -f "deploy.sh" ]; then
+    if [ -f "deploy.sh" ]; then
         print_info "Running deploy.sh..."
         chmod +x deploy.sh
-        ./deploy.sh
+        source "$SECRETS_FILE"
+        load_image_config
+        export DOCKER_USERNAME DOCKER_PASSWORD DOCKER_REGISTRY
+        export APP_IMAGE REDIS_IMAGE POSTGRES_IMAGE
+        ./deploy.sh rebuild
     else
-        print_error "No docker-compose.yml or deploy.sh found"
+        docker-compose down
+        docker-compose up -d --force-recreate
+        print_info "Services rebuilt and started"
+    fi
+}
+
+# Function to stop services
+stop_services() {
+    if [ ! -f "$SCRIPT_DIR/docker-compose.yml" ]; then
+        print_error "docker-compose.yml not found in $SCRIPT_DIR"
         exit 1
     fi
+
+    cd "$SCRIPT_DIR"
+
+    print_info "Stopping services..."
+
+    if [ -f "deploy.sh" ]; then
+        print_info "Running deploy.sh..."
+        chmod +x deploy.sh
+        source "$SECRETS_FILE"
+        ./deploy.sh stop
+    else
+        docker-compose down
+        print_info "Services stopped"
+    fi
+}
+
+# Function to show image configuration
+show_image_config() {
+    print_info "Current Docker Hub Image Configuration:"
+    echo ""
+    load_image_config
+
+    if [ -n "$APP_IMAGE" ]; then
+        echo "  App:     $APP_IMAGE"
+    fi
+
+    if [ -n "$REDIS_IMAGE" ]; then
+        echo "  Redis:   $REDIS_IMAGE"
+    fi
+
+    if [ -n "$POSTGRES_IMAGE" ]; then
+        echo "  Postgres: $POSTGRES_IMAGE"
+    fi
+    echo ""
 }
 
 # Function to show usage
 show_usage() {
-    echo "Usage: $0 {local|server|update|start|rebuild}"
+    echo "Usage: $0 {local|server|update|start|rebuild|stop|images}"
     echo ""
     echo "Commands:"
-    echo "  local      - Full setup in local environment (Docker already installed)"
-    echo "  server     - Full setup in server environment (will install dependencies)"
-    echo "  update     - Update repository (git pull) using saved credentials"
-    echo "  start      - Start services (docker-compose up or deploy.sh)"
-    echo "  rebuild    - Rebuild and start services"
+    echo "  local      - Initial setup in local environment (Docker already installed)"
+    echo "  server     - Initial setup in server environment (will install dependencies)"
+    echo "  update     - Pull latest images from Docker Hub"
+    echo "  start      - Start services"
+    echo "  rebuild    - Stop, pull latest images, and restart services"
+    echo "  stop       - Stop services"
+    echo "  images     - Show current Docker Hub image configuration"
     echo ""
-    echo "Repository: $REPO_URL"
+    echo "Configuration Files:"
+    echo "  Secrets:    $SECRETS_FILE"
+    echo "  Images:     $IMAGE_CONFIG_FILE"
+    echo "  Environment: $ENV_FILE"
+    echo ""
     echo "Script location: $SCRIPT_DIR"
 }
 
@@ -298,7 +386,6 @@ main() {
     case "$command" in
         local|server)
             print_step "Starting setup in $command environment..."
-            print_info "Repository: $REPO_URL"
             echo ""
 
             # Setup server dependencies if needed
@@ -307,50 +394,37 @@ main() {
                 echo ""
             fi
 
-            # Get GitHub credentials
-            get_github_credentials
+            # Create default image configuration
+            create_default_image_config
             echo ""
 
-            # Prepare clone directory (remove if exists)
-            prepare_clone_dir
+            # Get Docker Hub credentials
+            get_docker_credentials
             echo ""
-
-            # Clone repository
-            clone_repo "$CREDENTIALS_FILE"
-            echo ""
-
-            # Setup git and checkout branch
-            setup_git "$REPO_DIR"
-            echo ""
-
-            # Define env file path
-            local env_path="$REPO_DIR/.env"
 
             # Wait for env file confirmation
-            wait_for_env_confirmation "$env_path"
+            wait_for_env_confirmation "$ENV_FILE"
             echo ""
 
-            # Run deploy.sh
-            print_info "Running deploy.sh..."
-            cd "$REPO_DIR"
+            # Login to Docker Hub
+            docker_login
+            echo ""
 
-            if [ -f "deploy.sh" ]; then
-                chmod +x deploy.sh
-                ./deploy.sh
-            else
-                print_error "deploy.sh not found in repository"
-                exit 1
-            fi
+            # Start services
+            print_info "Starting services..."
+            start_services
+            echo ""
 
             print_info "Setup completed successfully!"
+            print_info "You can customize images in: $IMAGE_CONFIG_FILE"
             ;;
 
         update)
-            print_step "Updating repository..."
-            update_repo
+            print_step "Updating from Docker Hub..."
+            pull_latest_images
             echo ""
             print_info "Update completed! You may need to restart services."
-            print_info "Run: $0 start or $0 rebuild"
+            print_info "Run: $0 rebuild"
             ;;
 
         start)
@@ -365,6 +439,17 @@ main() {
             rebuild_services
             echo ""
             print_info "Services rebuilt and started successfully!"
+            ;;
+
+        stop)
+            print_step "Stopping services..."
+            stop_services
+            echo ""
+            print_info "Services stopped successfully!"
+            ;;
+
+        images)
+            show_image_config
             ;;
 
         *)
