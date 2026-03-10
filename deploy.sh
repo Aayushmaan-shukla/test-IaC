@@ -5,23 +5,17 @@
 
 ACTION=${1:-start}
 
-# Load Docker Hub credentials if secrets file exists
+# Load Docker Hub parameters if secrets file exists
 if [ -f "$(dirname "$0")/secrets" ]; then
     source "$(dirname "$0")/secrets"
 fi
 
-# Load image configuration if exists
-if [ -f "$(dirname "$0")/images.conf" ]; then
-    source "$(dirname "$0")/images.conf"
-fi
-
-# Default values (can be overridden by environment variables or config files)
+# Default values
 DOCKER_REGISTRY="${DOCKER_REGISTRY:-docker.io}"
 DOCKER_USERNAME="${DOCKER_USERNAME:-}"
 DOCKER_PASSWORD="${DOCKER_PASSWORD:-}"
-APP_IMAGE="${APP_IMAGE:-archaeaplayground/archaea:latest}"
-REDIS_IMAGE="${REDIS_IMAGE:-redis:7-alpine}"
-POSTGRES_IMAGE="${POSTGRES_IMAGE:-postgres:16-alpine}"
+DOCKER_IMAGE_PREFIX="${DOCKER_IMAGE_PREFIX:-}"
+DOCKER_IMAGE_PULL_NAME="${DOCKER_IMAGE_PULL_NAME:-}"
 
 # Prefer docker-compose over docker compose
 if command -v docker-compose &> /dev/null; then
@@ -50,9 +44,9 @@ case $ACTION in
     start)
         echo "Starting containers..."
         echo "Registry: $DOCKER_REGISTRY"
-        echo "App image: $APP_IMAGE"
-        echo "Redis image: $REDIS_IMAGE"
-        echo "Postgres image: $POSTGRES_IMAGE"
+        if [ -n "$DOCKER_IMAGE_PREFIX" ] && [ -n "$DOCKER_IMAGE_PULL_NAME" ]; then
+            echo "Image: $DOCKER_IMAGE_PREFIX/$DOCKER_IMAGE_PULL_NAME"
+        fi
         echo ""
 
         # Login to Docker Hub if credentials are available
@@ -63,19 +57,19 @@ case $ACTION in
     rebuild)
         echo "Rebuilding and starting containers..."
         echo "Registry: $DOCKER_REGISTRY"
-        echo "App image: $APP_IMAGE"
-        echo "Redis image: $REDIS_IMAGE"
-        echo "Postgres image: $POSTGRES_IMAGE"
+        if [ -n "$DOCKER_IMAGE_PREFIX" ] && [ -n "$DOCKER_IMAGE_PULL_NAME" ]; then
+            echo "Image: $DOCKER_IMAGE_PREFIX/$DOCKER_IMAGE_PULL_NAME"
+        fi
         echo ""
 
         # Login to Docker Hub if credentials are available
         docker_hub_login
 
-        # Pull latest images
-        echo "Pulling latest images..."
-        docker pull "$APP_IMAGE" || echo "Warning: Failed to pull $APP_IMAGE"
-        docker pull "$REDIS_IMAGE" || echo "Warning: Failed to pull $REDIS_IMAGE"
-        docker pull "$POSTGRES_IMAGE" || echo "Warning: Failed to pull $POSTGRES_IMAGE"
+        # Pull specified image if available
+        if [ -n "$DOCKER_IMAGE_PREFIX" ] && [ -n "$DOCKER_IMAGE_PULL_NAME" ]; then
+            echo "Pulling image: $DOCKER_IMAGE_PREFIX/$DOCKER_IMAGE_PULL_NAME"
+            docker pull "$DOCKER_IMAGE_PREFIX/$DOCKER_IMAGE_PULL_NAME" || echo "Warning: Failed to pull image"
+        fi
 
         # Restart containers
         $DOCKER_COMPOSE down

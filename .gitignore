@@ -9,3 +9,5 @@
 .terraform.lock.hcl
 #.tfvars
 !terraform.tfvars.example
+secrets
+*.txt

@@ -5,11 +5,9 @@ set -e
 # Get the directory where this script is located
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-# Docker Hub configuration
-DOCKER_REGISTRY="${DOCKER_REGISTRY:-docker.io}"
+# Configuration files
 SECRETS_FILE="$SCRIPT_DIR/secrets"
 ENV_FILE="$SCRIPT_DIR/.env"
-IMAGE_CONFIG_FILE="$SCRIPT_DIR/images.conf"
 
 # Colors for output
 RED='\033[0;31m'
@@ -35,122 +33,79 @@ print_step() {
     echo -e "${BLUE}[STEP]${NC} $1"
 }
 
-# Function to check if secrets file exists
-check_secrets() {
+# Function to get system architecture
+get_system_arch() {
+    local arch=$(uname -m)
+    case $arch in
+        x86_64)
+            echo "linux/amd64"
+            ;;
+        aarch64|arm64)
+            echo "linux/arm64"
+            ;;
+        *)
+            echo "linux/$arch"
+            ;;
+    esac
+}
+
+# Function to reset parameters
+reset_parameters() {
     if [ -f "$SECRETS_FILE" ]; then
-        return 0
+        print_warning "Removing existing secrets file..."
+        rm "$SECRETS_FILE"
+        print_info "Secrets file removed: $SECRETS_FILE"
     else
-        return 1
+        print_info "No secrets file found at $SECRETS_FILE"
     fi
 }
 
-# Function to get Docker Hub credentials
-get_docker_credentials() {
+# Function to get Docker Hub parameters
+get_docker_parameters() {
     if [ -f "$SECRETS_FILE" ]; then
         print_info "Found existing secrets file at $SECRETS_FILE"
         source "$SECRETS_FILE"
         return
     fi
 
-    print_info "Please provide your Docker Hub credentials"
+    print_info "Please provide your Docker Hub parameters"
+
     read -p "Enter Docker username: " username
     read -s -p "Enter Docker password/access token: " password
     echo ""
+    read -p "Enter Docker registry (default: docker.io): " registry
+    read -p "Enter Docker image prefix: " image_prefix
+    read -p "Enter Docker image pull name: " image_pull_name
 
-    # Save credentials to secrets file (with restricted permissions)
+    # Use defaults if empty
+    registry="${registry:-docker.io}"
+
+    # Save parameters to secrets file (with restricted permissions)
     cat > "$SECRETS_FILE" <<EOF
 export DOCKER_USERNAME="$username"
 export DOCKER_PASSWORD="$password"
-export DOCKER_REGISTRY="$DOCKER_REGISTRY"
+export DOCKER_REGISTRY="$registry"
+export DOCKER_IMAGE_PREFIX="$image_prefix"
+export DOCKER_IMAGE_PULL_NAME="$image_pull_name"
 EOF
     chmod 600 "$SECRETS_FILE"
 
-    print_info "Credentials saved to: $SECRETS_FILE"
+    print_info "Parameters saved to: $SECRETS_FILE"
 }
 
-# Function to load credentials
-load_credentials() {
+# Function to load parameters
+load_parameters() {
     if [ -f "$SECRETS_FILE" ]; then
         source "$SECRETS_FILE"
     else
-        print_error "Secrets file not found at $SECRETS_FILE. Please run setup first."
+        print_error "Parameters not found. Please run setup first."
         exit 1
     fi
 }
 
-# Function to create default image configuration
-create_default_image_config() {
-    if [ ! -f "$IMAGE_CONFIG_FILE" ]; then
-        cat > "$IMAGE_CONFIG_FILE" <<'EOF'
-# Docker Hub Image Configuration
-# Format: SERVICE_NAME=DOCKER_HUB_IMAGE:TAG
-# Example: APP_IMAGE=archaeaplayground/archaea:latest
-
-# Main application image
-APP_IMAGE=archaeaplayground/archaea:latest
-
-# Optional: Redis image (override if needed)
-# REDIS_IMAGE=redis:7-alpine
-
-# Optional: PostgreSQL image (override if needed)
-# POSTGRES_IMAGE=postgres:16-alpine
-EOF
-        print_info "Created default image configuration at $IMAGE_CONFIG_FILE"
-        print_warning "Please review and customize the image names and tags as needed"
-    fi
-}
-
-# Function to load image configuration
-load_image_config() {
-    if [ -f "$IMAGE_CONFIG_FILE" ]; then
-        source "$IMAGE_CONFIG_FILE"
-    else
-        create_default_image_config
-        source "$IMAGE_CONFIG_FILE"
-    fi
-}
-
-# Function to pull specific image from Docker Hub
-pull_docker_image() {
-    local image="$1"
-    load_credentials
-
-    print_info "Pulling image: $image"
-    docker login -u "$DOCKER_USERNAME" --password-stdin "$DOCKER_REGISTRY" <<< "$DOCKER_PASSWORD" 2>/dev/null || true
-    docker pull "$image" || {
-        print_error "Failed to pull image: $image"
-        return 1
-    }
-    print_info "Successfully pulled: $image"
-}
-
-# Function to pull all configured images
-pull_all_images() {
-    load_image_config
-
-    print_info "Pulling Docker Hub images..."
-    echo ""
-
-    # Pull each configured image
-    if [ -n "$APP_IMAGE" ]; then
-        pull_docker_image "$APP_IMAGE"
-    fi
-
-    if [ -n "$REDIS_IMAGE" ]; then
-        pull_docker_image "$REDIS_IMAGE"
-    fi
-
-    if [ -n "$POSTGRES_IMAGE" ]; then
-        pull_docker_image "$POSTGRES_IMAGE"
-    fi
-
-    echo ""
-    print_info "All images pulled successfully"
-}
-
 # Function to login to Docker Hub
 docker_login() {
-    load_credentials
+    load_parameters
 
     print_info "Logging in to Docker Hub as $DOCKER_USERNAME..."
     echo "$DOCKER_PASSWORD" | docker login -u "$DOCKER_USERNAME" --password-stdin "$DOCKER_REGISTRY" || {
@@ -161,23 +116,48 @@ docker_login() {
     print_info "Successfully logged in to Docker Hub"
 }
 
-# Function to pull latest images from Docker Hub
-pull_latest_images() {
-    if [ ! -f "$SCRIPT_DIR/docker-compose.yml" ]; then
-        print_error "docker-compose.yml not found in $SCRIPT_DIR"
-        exit 1
-    fi
+# Function to pull Docker images
+pull_images() {
+    load_parameters
 
-    load_credentials
+    local system_arch=$(get_system_arch)
+    local full_image="$DOCKER_IMAGE_PREFIX/$DOCKER_IMAGE_PULL_NAME"
 
-    cd "$SCRIPT_DIR"
-
-    print_info "Pulling latest images from Docker Hub..."
+    print_info "Pulling Docker images from Docker Hub..."
     print_info "Registry: $DOCKER_REGISTRY"
+    print_info "Image: $full_image"
+    print_info "System architecture: $system_arch"
     echo ""
 
-    # Pull all configured images
-    pull_all_images
+    docker_login
+
+    print_info "Pulling image: $full_image"
+
+    # Try to pull with platform specification
+    if docker pull --platform "$system_arch" "$full_image" 2>/dev/null; then
+        print_info "Successfully pulled: $full_image"
+    else
+        # Try without platform specification
+        print_warning "Platform-specific pull failed, trying without platform specification..."
+        if docker pull "$full_image"; then
+            print_info "Successfully pulled: $full_image"
+        else
+            print_error "Failed to pull image: $full_image"
+            echo ""
+            print_error "Possible issues:"
+            print_error "1. Image doesn't exist on Docker Hub"
+            print_error "2. Image tag is incorrect (check for typos)"
+            print_error "3. Image was built for a different architecture"
+            print_error "4. Image is private and you don't have access"
+            echo ""
+            print_info "Troubleshooting steps:"
+            print_info "1. Verify image exists: docker search $DOCKER_IMAGE_PREFIX"
+            print_info "2. Check image tags at: https://hub.docker.com/r/$DOCKER_IMAGE_PREFIX"
+            print_info "3. Try pulling manually: docker pull $full_image"
+            print_info "4. Check if image supports your platform: docker manifest inspect $full_image"
+            exit 1
+        fi
+    fi
 }
 
 # Function to wait for env file confirmation
@@ -265,9 +245,7 @@ start_services() {
         print_info "Running deploy.sh..."
         chmod +x deploy.sh
         source "$SECRETS_FILE"
-        load_image_config
-        export DOCKER_USERNAME DOCKER_PASSWORD DOCKER_REGISTRY
-        export APP_IMAGE REDIS_IMAGE POSTGRES_IMAGE
+        export DOCKER_USERNAME DOCKER_PASSWORD DOCKER_REGISTRY DOCKER_IMAGE_PREFIX DOCKER_IMAGE_PULL_NAME
         ./deploy.sh start
     else
         docker-compose up -d
@@ -289,8 +267,8 @@ rebuild_services() {
     # Login to Docker Hub
     docker_login
 
-    # Pull latest images first
-    pull_latest_images
+    # Pull images first
+    pull_images
     echo ""
 
     # Check for docker-compose file
@@ -298,9 +276,7 @@ rebuild_services() {
         print_info "Running deploy.sh..."
         chmod +x deploy.sh
         source "$SECRETS_FILE"
-        load_image_config
-        export DOCKER_USERNAME DOCKER_PASSWORD DOCKER_REGISTRY
-        export APP_IMAGE REDIS_IMAGE POSTGRES_IMAGE
+        export DOCKER_USERNAME DOCKER_PASSWORD DOCKER_REGISTRY DOCKER_IMAGE_PREFIX DOCKER_IMAGE_PULL_NAME
         ./deploy.sh rebuild
     else
         docker-compose down
@@ -331,29 +307,9 @@ stop_services() {
     fi
 }
 
-# Function to show image configuration
-show_image_config() {
-    print_info "Current Docker Hub Image Configuration:"
-    echo ""
-    load_image_config
-
-    if [ -n "$APP_IMAGE" ]; then
-        echo "  App:     $APP_IMAGE"
-    fi
-
-    if [ -n "$REDIS_IMAGE" ]; then
-        echo "  Redis:   $REDIS_IMAGE"
-    fi
-
-    if [ -n "$POSTGRES_IMAGE" ]; then
-        echo "  Postgres: $POSTGRES_IMAGE"
-    fi
-    echo ""
-}
-
 # Function to show usage
 show_usage() {
-    echo "Usage: $0 {local|server|update|start|rebuild|stop|images}"
+    echo "Usage: $0 {local|server|update|start|rebuild|stop|reset}"
     echo ""
     echo "Commands:"
     echo "  local      - Initial setup in local environment (Docker already installed)"
@@ -362,13 +318,9 @@ show_usage() {
     echo "  start      - Start services"
     echo "  rebuild    - Stop, pull latest images, and restart services"
     echo "  stop       - Stop services"
-    echo "  images     - Show current Docker Hub image configuration"
+    echo "  reset      - Remove secrets file (you'll need to re-enter parameters)"
     echo ""
-    echo "Configuration Files:"
-    echo "  Secrets:    $SECRETS_FILE"
-    echo "  Images:     $IMAGE_CONFIG_FILE"
-    echo "  Environment: $ENV_FILE"
-    echo ""
+    echo "Configuration file: $SECRETS_FILE"
     echo "Script location: $SCRIPT_DIR"
 }
 
@@ -384,6 +336,12 @@ main() {
     local command="$1"
 
     case "$command" in
+        reset)
+            reset_parameters
+            echo ""
+            print_info "Secrets reset! Next time you run 'local' or 'server', you'll be asked for parameters again."
+            ;;
+
         local|server)
             print_step "Starting setup in $command environment..."
             echo ""
@@ -394,12 +352,8 @@ main() {
                 echo ""
             fi
 
-            # Create default image configuration
-            create_default_image_config
-            echo ""
-
-            # Get Docker Hub credentials
-            get_docker_credentials
+            # Get Docker Hub parameters
+            get_docker_parameters
             echo ""
 
             # Wait for env file confirmation
@@ -410,18 +364,21 @@ main() {
             docker_login
             echo ""
 
+            # Pull images
+            pull_images
+            echo ""
+
             # Start services
             print_info "Starting services..."
             start_services
             echo ""
 
             print_info "Setup completed successfully!"
-            print_info "You can customize images in: $IMAGE_CONFIG_FILE"
             ;;
 
         update)
             print_step "Updating from Docker Hub..."
-            pull_latest_images
+            pull_images
             echo ""
             print_info "Update completed! You may need to restart services."
             print_info "Run: $0 rebuild"
@@ -446,10 +403,6 @@ main() {
             stop_services
             echo ""
             print_info "Services stopped successfully!"
-            ;;
-
-        images)
-            show_image_config
             ;;
 
         *)
