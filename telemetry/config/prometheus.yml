@@ -1,0 +1,127 @@
+# Prometheus Configuration
+# Production-ready monitoring configuration with file-based service discovery
+
+global:
+  # Default scrape interval - how often to scrape targets
+  scrape_interval: 15s
+
+  # Default evaluation interval for rules
+  evaluation_interval: 15s
+
+  # Attach external labels to all time series
+  external_labels:
+    cluster: '${CLUSTER_NAME:-telemetry}'
+    environment: '${ENVIRONMENT:-production}'
+    datacenter: '${DATACENTER:-default}'
+
+  # Configuration for scraping itself
+  scrape_timeout: 10s
+
+# Alertmanager configuration
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: ['${ALERTMANAGER_HOST:-alertmanager}:${ALERTMANAGER_PORT:-9093}']
+      timeout: 10s
+      api_version: v2
+
+# Rule files location
+rule_files:
+  - '/etc/prometheus/rules/*.yml'
+
+# Scrape configuration using file-based service discovery
+scrape_configs:
+  # Prometheus self-monitoring
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+        labels:
+          instance: '${HOSTNAME:-prometheus}'
+
+  # Node Exporter metrics - uses file-based SD
+  - job_name: 'node-exporter'
+    file_sd_configs:
+      - files:
+          - '${PROMETHEUS_CONFIG_DIR:-./config}/prometheus-file-sd/node-exporter.json'
+        refresh_interval: 30s
+    relabel_configs:
+      # Replace instance label with actual target
+      - source_labels: [__address__]
+        target_label: instance
+
+  # MongoDB Exporter metrics - uses file-based SD
+  - job_name: 'mongodb-exporter'
+    file_sd_configs:
+      - files:
+          - '${PROMETHEUS_CONFIG_DIR:-./config}/prometheus-file-sd/mongodb-exporter.json'
+        refresh_interval: 30s
+    relabel_configs:
+      # Replace instance label with actual target
+      - source_labels: [__address__]
+        target_label: instance
+
+  # Custom API monitoring - dynamic service discovery
+  - job_name: 'api-monitoring'
+    file_sd_configs:
+      - files:
+          - '${PROMETHEUS_CONFIG_DIR:-./config}/prometheus-file-sd/apis.json'
+        refresh_interval: 30s
+    metrics_path: '/metrics'
+    relabel_configs:
+      # Add custom labels for API endpoints
+      - source_labels: [__address__]
+        target_label: instance
+      - source_labels: [__meta_filepath]
+        target_label: config_file
+
+  # cAdvisor for container metrics
+  - job_name: 'cadvisor'
+    static_configs:
+      - targets: ['${CADVISOR_HOST:-cadvisor}:${CADVISOR_PORT:-8080}']
+        labels:
+          instance: '${HOSTNAME:-docker-host}'
+
+  # Pushgateway for ephemeral jobs
+  - job_name: 'pushgateway'
+    honor_labels: true
+    static_configs:
+      - targets: ['${PUSHGATEWAY_HOST:-pushgateway}:${PUSHGATEWAY_PORT:-9091}']
+        labels:
+          instance: '${HOSTNAME:-pushgateway}'
+
+# Storage configuration
+storage:
+  # Retention policy - how long to keep data
+  tsdb:
+    retention:
+      time: '${RETENTION_TIME:-15d}'
+      size: '${RETENTION_SIZE:-20GB}'
+
+    # Storage path for time-series data
+    path: '${PROMETHEUS_STORAGE_PATH:-/prometheus}'
+
+    # Out-of-order time windows
+    out_of_order_time_window: '${OUT_OF_ORDER_WINDOW:-30m}'
+
+    # Remote write configuration for long-term storage
+    remote_write:
+      - url: '${REMOTE_WRITE_URL:-}'
+        send_exemplars: true
+        queue_config:
+          max_samples_per_send: 10000
+          max_shards: 50
+          capacity: 100000
+
+# Tracing configuration
+tracing:
+  endpoint: '${OTLP_ENDPOINT:-localhost:4317}'
+  client_type: 'grpc'
+  headers:
+    X-Prometheus-Cluster: '${CLUSTER_NAME:-telemetry}'
+
+# Feature flags
+enable_features:
+  - exemplar-storage
+  - expand-external-labels
+  - memory-snapshot-on-shutdown
+  - new-service-discovery-manager

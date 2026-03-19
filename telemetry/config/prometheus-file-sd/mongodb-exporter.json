@@ -1,0 +1,21 @@
+[
+  {
+    "targets": [
+      "mongodb-exporter:9214"
+    ],
+    "labels": {
+      "job": "mongodb-exporter",
+      "instance": "${HOSTNAME:-localhost}",
+      "environment": "${ENVIRONMENT:-production}",
+      "cluster": "${CLUSTER_NAME:-telemetry}",
+      "database": "mongodb",
+      "exporter_version": "0.40.0",
+      "monitoring_type": "database",
+      "mongodb_host": "${MONGODB_HOST:-mongodb}",
+      "mongodb_port": "${MONGODB_PORT:-27017}"
+    },
+    "scrape_interval": "15s",
+    "scrape_timeout": "10s",
+    "metrics_path": "/metrics"
+  }
+]

@@ -1,0 +1,19 @@
+[
+  {
+    "targets": [
+      "node-exporter:9100"
+    ],
+    "labels": {
+      "job": "node-exporter",
+      "instance": "${HOSTNAME:-localhost}",
+      "environment": "${ENVIRONMENT:-production}",
+      "cluster": "${CLUSTER_NAME:-telemetry}",
+      "os_family": "linux",
+      "exporter_version": "1.8.0",
+      "monitoring_type": "system"
+    },
+    "scrape_interval": "15s",
+    "scrape_timeout": "10s",
+    "metrics_path": "/metrics"
+  }
+]

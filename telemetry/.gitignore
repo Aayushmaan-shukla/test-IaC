@@ -1,0 +1,145 @@
+# ================================
+# Environment Variables
+# ================================
+.env
+.env.local
+.env.*.local
+.env.secrets
+.env.production
+.env.staging
+.env.development
+.env.testing
+
+# ================================
+# Data and Logs
+# ================================
+data/
+logs/
+prometheus-data/
+loki-data/
+grafana-data/
+promtail-data/
+mongodb-data/
+
+# Docker volumes (if mounted locally)
+volumes/
+
+# ================================
+# Temporary Files
+# ================================
+*.tmp
+*.temp
+*.log
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# ================================
+# Backup Files
+# ================================
+*.bak
+*.backup
+backups/
+*.old
+.permissions-rollback-*.txt
+.permissions-backup-*.txt
+
+# ================================
+# IDE and Editor Files
+# ================================
+.vscode/
+.idea/
+*.iml
+.project
+.settings/
+*.sublime-project
+*.sublime-workspace
+
+# ================================
+# OS Files
+# ================================
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# ================================
+# Testing
+# ================================
+test/
+*.test
+tests/
+coverage/
+.nyc_output/
+test-results/
+
+# ================================
+# Documentation Drafts
+# ================================
+*.md.bak
+*.md.tmp
+DRAFT_*
+
+# ================================
+# Database Files
+# ================================
+*.db
+*.sqlite
+*.sqlite3
+
+# ================================
+# Sensitive Files
+# ================================
+*secrets.yml
+*secrets.yaml
+*secrets.json
+*credentials.yml
+*credentials.yaml
+*credentials.json
+*.key
+*.pem
+*.crt
+*.cert
+*.der
+*.p12
+*.pfx
+# Keep example certificates
+!*.example.pem
+!*.example.key
+!*.example.crt
+
+# ================================
+# Terraform Files (if any)
+# ================================
+.terraform/
+.terraform.lock.hcl
+*.tfstate
+*.tfstate.*
+*.tfvars
+!example.tfvars
+!.terraform.example
+
+# ================================
+# Ansible Files (if any)
+# ================================
+*.retry
+ansible/hosts.local
+
+# ================================
+# Build Artifacts
+# ================================
+dist/
+build/
+*.tgz
+*.tar.gz
+*.zip
+
+# ================================
+# Claude/AI
+# ================================
+.claude/

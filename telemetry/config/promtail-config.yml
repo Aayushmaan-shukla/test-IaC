@@ -1,0 +1,426 @@
+# Promtail Configuration
+# Production-ready log shipping agent
+
+server:
+  http_listen_port: ${PROMTAIL_HTTP_PORT:-9080}
+  grpc_listen_port: 0
+
+# Client configuration
+clients:
+  - url: http://${LOKI_HOST:-loki}:${LOKI_PORT:-3100}/loki/api/v1/push
+
+    # Timeout configuration
+    timeout: ${LOKI_CLIENT_TIMEOUT:-10s}
+
+    # Batch configuration
+    batch_wait: ${BATCH_WAIT:-1s}
+    batch_size: ${BATCH_SIZE:-1048576}
+
+    # Retry configuration
+    backoff_config:
+      min_period: ${BACKOFF_MIN_PERIOD:-100ms}
+      max_period: ${BACKOFF_MAX_PERIOD:-5s}
+      max_retries: ${MAX_RETRIES:-10}
+
+    # Rate limiting
+    rate_limit: ${RATE_LIMIT:-10485760}  # 10MB/s
+    rate_limit_burst: ${RATE_LIMIT_BURST:-10485760}
+
+    # External labels
+    external_labels:
+      cluster: '${CLUSTER_NAME:-telemetry}'
+      environment: '${ENVIRONMENT:-production}'
+      hostname: '${HOSTNAME:-localhost}'
+
+# Scrape configurations
+positions:
+  filename: /tmp/positions.yaml
+
+# Target configuration
+target_config:
+  sync_period: ${SYNC_PERIOD:-10s}
+
+scrape_configs:
+
+  # ============================================
+  # System Logs - Auth Log
+  # ============================================
+  - job_name: auth-log
+    static_configs:
+      - targets:
+          - localhost
+        labels:
+          job: auth-log
+          __path__: /var/log/auth.log
+          cluster: '${CLUSTER_NAME:-telemetry}'
+          environment: '${ENVIRONMENT:-production}'
+
+    # Pipeline stages for SSH IP extraction and security analysis
+    pipeline_stages:
+      # Parse auth.log format
+      - regex:
+          expression: '(?P<timestamp>\w{3}\s+\d{1,2}\s+\d{2}:\d{2}:\d{2})\s+(?P<host>\S+)\s+(?P<process>\S+)(?:\[(?P<pid>\d+)\])?:\s+(?P<message>.*)'
+
+      # Extract SSH connection attempts
+      - regex:
+          expression: 'Accepted (password|publickey) for (?P<user>\S+) from (?P<ip_address>\S+) port \d+ ssh2'
+          source: message
+
+      # Extract failed authentication attempts
+      - regex:
+          expression: 'Failed (password|publickey) for (invalid user )?(?P<user>\S+) from (?P<ip_address>\S+) port \d+ ssh2'
+          source: message
+
+      # Extract root login attempts
+      - regex:
+          expression: '(?P<type>ROOT LOGIN).*on (?P<tty>\S+)'
+          source: message
+
+      # Extract session opened/closed
+      - regex:
+          expression: '(?P<action>Opened|Closed) session \d+ for user (?P<user>\S+)'
+          source: message
+
+      # Add security labels
+      - labels:
+          log_type:
+            - auth
+            - ssh
+            - security
+
+      # Mask sensitive information (passwords in log messages)
+      - replace:
+          expression: 'password=\S+'
+          replace: 'password=[REDACTED]'
+
+      # Add geolocation hint (placeholder for enrichment)
+      - template:
+          source: ip_address
+          template: '{{ if .ip_address }}{{ .ip_address }}{{ else }}unknown{{ end }}'
+
+  # ============================================
+  # System Logs - Syslog
+  # ============================================
+  - job_name: syslog
+    static_configs:
+      - targets:
+          - localhost
+        labels:
+          job: syslog
+          __path__: /var/log/syslog
+          cluster: '${CLUSTER_NAME:-telemetry}'
+          environment: '${ENVIRONMENT:-production}'
+
+    pipeline_stages:
+      # Parse syslog format
+      - regex:
+          expression: '(?P<timestamp>\w{3}\s+\d{1,2}\s+\d{2}:\d{2}:\d{2})\s+(?P<host>\S+)\s+(?P<process>\S+)(?:\[(?P<pid>\d+)\])?:\s+(?P<message>.*)'
+
+      # Extract kernel messages
+      - regex:
+          expression: 'kernel:\s*(?P<kernel_message>.*)'
+          source: message
+
+      # Extract systemd service messages
+      - regex:
+          expression: '(?P<service>\S+)\[(?P<pid>\d+)\]:\s*(?P<service_message>.*)'
+          source: message
+
+      # Add system labels
+      - labels:
+          log_type:
+            - system
+            - syslog
+          level: info
+
+  # ============================================
+  # Journal (Systemd) - Alternative to syslog
+  # ============================================
+  - job_name: journal
+    journal:
+      max_age: ${JOURNAL_MAX_AGE:-12h}
+      labels:
+        job: systemd-journal
+        cluster: '${CLUSTER_NAME:-telemetry}'
+        environment: '${ENVIRONMENT:-production}'
+
+      # Journal fields to include as labels
+      path: /var/log/journal
+      matches:
+        - '{_SYSTEMD_UNIT!=+"docker.service"}'
+        - '{_SYSTEMD_UNIT!=+"kubelet.service"}'
+
+    relabel_configs:
+      # Extract systemd unit
+      - source_labels: ['__journal__systemd_unit']
+        target_label: systemd_unit
+        regex: '(.+)?'
+
+      # Extract priority level
+      - source_labels: ['__journal_priority_keyword']
+        target_label: level
+
+      # Extract process name
+      - source_labels: ['__journal_comm']
+        target_label: process
+
+      # Extract hostname
+      - source_labels: ['__journal_hostname']
+        target_label: instance
+
+    pipeline_stages:
+      # Add structured labels
+      - labels:
+          log_type:
+            - systemd
+            - journal
+
+  # ============================================
+  # Docker Container Logs
+  # ============================================
+  - job_name: docker-containers
+    static_configs:
+      - targets:
+          - localhost
+        labels:
+          job: docker-containers
+          __path__: /var/lib/docker/containers/*/*-json.log
+          cluster: '${CLUSTER_NAME:-telemetry}'
+          environment: '${ENVIRONMENT:-production}'
+
+    pipeline_stages:
+      # Parse Docker JSON log format
+      - json:
+          expressions:
+            output: log
+            time: time
+            stream: stream
+
+      # Extract container ID from filename
+      - regex:
+          expression: '/var/lib/docker/containers/(?P<container_id>[a-f0-9]{64})/[a-f0-9]{64}-json.log'
+          source: filename
+
+      # Add container labels
+      - docker:
+
+      # Parse application-specific logs
+      - cri:
+          level: info
+
+      - labels:
+          log_type:
+            - container
+            - docker
+
+  # ============================================
+  # MongoDB Logs
+  # ============================================
+  - job_name: mongodb-logs
+    static_configs:
+      - targets:
+          - localhost
+        labels:
+          job: mongodb
+          __path__: /var/log/mongodb/mongodb.log
+          cluster: '${CLUSTER_NAME:-telemetry}'
+          environment: '${ENVIRONMENT:-production}'
+          database: mongodb
+
+    pipeline_stages:
+      # Parse MongoDB log format
+      - regex:
+          expression: '(?P<timestamp>\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d+\+\d{2}:\d{2})\s+(?P<severity>\w+)\s+(?P<component>\w+)\s+\[(?P<context>[^\]]+)\]\s+(?P<message>.*)'
+
+      # Extract slow queries
+      - regex:
+          expression: 'command (?P<database>\w+)\.\$(?<command>\w+) took (?P<duration>\d+)ms'
+          source: message
+
+      # Extract connection events
+      - regex:
+          expression: 'connection accepted from (?P<ip_address>\S+):\d+'
+          source: message
+
+      - labels:
+          log_type:
+            - database
+            - mongodb
+
+  # ============================================
+  # Application Logs - General Pattern
+  # ============================================
+  - job_name: application-logs
+    static_configs:
+      - targets:
+          - localhost
+        labels:
+          job: application
+          __path__: /var/log/app/*.log
+          cluster: '${CLUSTER_NAME:-telemetry}'
+          environment: '${ENVIRONMENT:-production}'
+
+    pipeline_stages:
+      # Parse common application log format
+      - regex:
+          expression: '^\[(?P<timestamp>[^\]]+)\]\s+\[(?P<level>\w+)\]\s+\[(?P<logger>\w+)\]\s+(?P<message>.*)'
+
+      # Parse JSON logs
+      - json:
+          expressions:
+            timestamp: timestamp
+            level: level
+            message: message
+            user_id: user_id
+            request_id: request_id
+            duration: duration
+
+      # Add application labels
+      - labels:
+          log_type:
+            - application
+
+  # ============================================
+  # Command Auditing - sudo/su
+  # ============================================
+  - job_name: command-audit
+    static_configs:
+      - targets:
+          - localhost
+        labels:
+          job: command-audit
+          __path__: /var/log/auth.log
+          cluster: '${CLUSTER_NAME:-telemetry}'
+          environment: '${ENVIRONMENT:-production}'
+
+    pipeline_stages:
+      # Filter for sudo/su commands
+      - match:
+          selector: '{job="command-audit"} |= "sudo"'
+          action: keep
+
+      - match:
+          selector: '{job="command-audit"} |= "su"'
+          action: keep
+
+      # Extract sudo commands
+      - regex:
+          expression: 'sudo:\s+(?P<user>\S+)\s*:\s+(?P<command>.*)'
+          source: message
+
+      # Extract su attempts
+      - regex:
+          expression: 'su\[(?P<pid>\d+)\]:\s+(?P<action>\w+)\s+for\s+(?P<user>\w+)\s+by\s+(?P<by_user>\w+)'
+          source: message
+
+      # Add audit labels
+      - labels:
+          log_type:
+            - audit
+            - security
+            - command
+
+      # Mark as high security event
+      - labels:
+          security_level: high
+
+  # ============================================
+  # Nginx Access Logs
+  # ============================================
+  - job_name: nginx-access
+    static_configs:
+      - targets:
+          - localhost
+        labels:
+          job: nginx-access
+          __path__: /var/log/nginx/access.log
+          cluster: '${CLUSTER_NAME:-telemetry}'
+          environment: '${ENVIRONMENT:-production}'
+
+    pipeline_stages:
+      # Parse Nginx combined log format
+      - regex:
+          expression: '(?P<remote_addr>\S+)\s+\S+\s+(?P<remote_user>\S+)\s+\[(?P<time_local>[^\]]+)\]\s+"(?P<method>\w+)\s+(?P<path>\S+)\s+(?P<protocol>\S+)"\s+(?P<status>\d+)\s+(?P<body_bytes_sent>\d+)\s+"(?P<http_referer>[^"]*)"\s+"(?P<http_user_agent>[^"]*)"'
+
+      # Convert status code to numeric
+      - labels:
+          status:
+            - "200"
+            - "201"
+            - "301"
+            - "302"
+            - "400"
+            - "401"
+            - "403"
+            - "404"
+            - "500"
+
+      - labels:
+          log_type:
+            - web
+            - nginx
+            - access
+
+  # ============================================
+  # Nginx Error Logs
+  # ============================================
+  - job_name: nginx-error
+    static_configs:
+      - targets:
+          - localhost
+        labels:
+          job: nginx-error
+          __path__: /var/log/nginx/error.log
+          cluster: '${CLUSTER_NAME:-telemetry}'
+          environment: '${ENVIRONMENT:-production}'
+
+    pipeline_stages:
+      # Parse Nginx error log format
+      - regex:
+          expression: '(?P<timestamp>\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2})\s+\[(?P<level>\w+)\]\s+(?P<pid>\d+)#(?P<tid>\d+):\s+(?P<message>.*)'
+
+      - labels:
+          log_type:
+            - web
+            - nginx
+            - error
+
+  # ============================================
+  # Auditd Logs (Linux Audit System)
+  # ============================================
+  - job_name: auditd
+    static_configs:
+      - targets:
+          - localhost
+        labels:
+          job: auditd
+          __path__: /var/log/audit/audit.log
+          cluster: '${CLUSTER_NAME:-telemetry}'
+          environment: '${ENVIRONMENT:-production}'
+
+    pipeline_stages:
+      # Parse auditd format (simplified)
+      - regex:
+          expression: 'type=(?P<type>\w+)\s+msg=audit\(\d+\.\d+:\d+\):\s+(?P<message>.*)'
+
+      # Extract syscall events
+      - regex:
+          expression: 'syscall=(?P<syscall>\w+)'
+          source: message
+
+      # Extract UID/GID
+      - regex:
+          expression: 'uid=(?P<uid>\d+)\s+gid=(?P<gid>\d+)'
+          source: message
+
+      - labels:
+          log_type:
+            - audit
+            - security
+            - system
+
+# Global labels for all scrapes
+global_labels:
+  cluster: '${CLUSTER_NAME:-telemetry}'
+  environment: '${ENVIRONMENT:-production}'
+  datacenter: '${DATACENTER:-default}'

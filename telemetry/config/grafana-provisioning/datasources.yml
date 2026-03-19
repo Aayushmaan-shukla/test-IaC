@@ -1,0 +1,326 @@
+# Grafana Datasource Provisioning
+# Production-ready datasource configuration
+
+apiVersion: 1
+
+# List of datasources to insert/update depending on what's available
+datasources:
+  # ============================================
+  # Prometheus Datasource
+  # ============================================
+  - name: Prometheus
+    type: prometheus
+    access: proxy
+    url: http://${PROMETHEUS_HOST:-prometheus}:${PROMETHEUS_PORT:-9090}
+    isDefault: true
+    editable: true
+
+    # Time series database configuration
+    jsonData:
+      # Time range configuration
+      timeInterval: ${PROMETHEUS_TIME_INTERVAL:-15s}
+
+      # Query options
+      httpMethod: POST
+      exemplarTraceIdDestinations:
+        - datasourceUid: tempo
+        urlDisplayLabel: 'View Trace in Tempo'
+
+      # Alerting configuration
+      alertQueryTimeout: ${ALERT_QUERY_TIMEOUT:-3m}
+      alertMaxDataPoints: ${ALERT_MAX_DATA_POINTS:-1000}
+
+      # Query history
+      queryHistoryEnabled: ${QUERY_HISTORY_ENABLED:-true}
+      queryHistoryLimit: ${QUERY_HISTORY_LIMIT:-100}
+
+      # Cache configuration
+      frontendCacheEnabled: ${FRONTEND_CACHE_ENABLED:-true}
+      frontendCacheTTL: ${FRONTEND_CACHE_TTL:-60s}
+
+      # Custom query parameters
+      customQueryParameters: ${PROMETHEUS_CUSTOM_PARAMS:-}
+
+    # Secure configuration (passwords, secrets)
+    secureJsonData:
+      httpHeaderValue1: ${PROMETHEUS_AUTH_TOKEN:-}
+
+    # Version configuration
+    version: 1
+
+  # ============================================
+  # Loki Datasource
+  # ============================================
+  - name: Loki
+    type: loki
+    access: proxy
+    url: http://${LOKI_HOST:-loki}:${LOKI_PORT:-3100}
+    editable: true
+
+    # Loki-specific configuration
+    jsonData:
+      # Time range configuration
+      timeInterval: ${LOKI_TIME_INTERVAL:-1m}
+
+      # Derived fields for linking logs to traces
+      derivedFields:
+        # Link to Tempo traces
+        - datasourceUid: tempo
+          matcherRegex: 'traceID=(\w+)'
+          name: TraceID
+          url: '$${__value.raw}'
+          urlDisplayLabel: 'View Trace in Tempo'
+
+        # Link to metrics from logs
+        - datasourceUid: prometheus
+          matcherRegex: 'instance="([^"]+)"'
+          name: Instance
+          url: '/d/prometheus/prometheus?var-instance=$${__value.raw}'
+          urlDisplayLabel: 'View Metrics'
+
+      # Loki query options
+      maxLines: ${LOKI_MAX_LINES:-1000}
+      maxDatapoints: ${LOKI_MAX_DATAPOINTS:-500}
+      minStep: ${LOKI_MIN_STEP:-15s}
+
+      # Stream filtering
+      streamingEnabled: ${LOKI_STREAMING_ENABLED:-true}
+      streamingBatchSize: ${LOKI_STREAMING_BATCH_SIZE:-100}
+
+      # Log display options
+      showLabels: ${LOKI_SHOW_LABELS:-true}
+      showContext: ${LOKI_SHOW_CONTEXT:-true}
+      deduplicateStrategy: ${LOKI_DEDUP_STRATEGY:-exact}
+
+      # Query editor configuration
+      lokiQueryOptions:
+        latency: ${LOKI_QUERY_LATENCY:-500ms}
+        queryTimeout: ${LOKI_QUERY_TIMEOUT:-5m}
+        queryMaxRetries: ${LOKI_QUERY_RETRIES:-3}
+
+    # Secure configuration
+    secureJsonData:
+      httpHeaderValue1: ${LOKI_AUTH_TOKEN:-}
+
+    # Version configuration
+    version: 1
+
+  # ============================================
+  # Tempo Datasource (Distributed Tracing)
+  # ============================================
+  - name: Tempo
+    type: tempo
+    access: proxy
+    url: http://${TEMPO_HOST:-tempo}:${TEMPO_PORT:-3200}
+    editable: true
+    uid: tempo
+
+    # Tempo-specific configuration
+    jsonData:
+      # Trace options
+      tracesToLogs:
+        datasourceUid: loki
+        filterByTraceID: true
+        mapTagNamesEnabled: true
+        tags:
+          - key: job
+            value: job
+          - key: host
+            value: instance
+
+      tracesToMetrics:
+        datasourceUid: prometheus
+        queries:
+          - name: 'Trace Server Duration'
+            query: 'sum(rate(http_server_duration_seconds_count{trace_id="$${__span.traceId}}[$$__rate_interval]))'
+        filters:
+          - type: contains
+            tag: service.name
+
+      # Service graph configuration
+      serviceMap:
+        datasourceUid: prometheus
+        enabled: ${TEMPO_SERVICE_MAP_ENABLED:-true}
+
+      # Search configuration
+      nodeGraph:
+        enabled: ${TEMPO_NODE_GRAPH_ENABLED:-true}
+
+      # Trace options
+      traceQuery:
+        timeRangeEnabled: true
+        minDuration: ${TEMPO_MIN_DURATION:-10ms}
+        maxDuration: ${TEMPO_MAX_DURATION:-10m}
+
+      # Span options
+      spanBar:
+        type: waterfall
+
+      # Metrics from traces
+      metricsFromTraces:
+        enabled: ${TEMPO_METRICS_FROM_TRACES:-true}
+        labels:
+          - key: service.name
+            value: service_name
+
+    # Secure configuration
+    secureJsonData:
+      httpHeaderValue1: ${TEMPO_AUTH_TOKEN:-}
+
+    # Version configuration
+    version: 1
+
+  # ============================================
+  # Alertmanager Datasource
+  # ============================================
+  - name: Alertmanager
+    type: alertmanager
+    access: proxy
+    url: http://${ALERTMANAGER_HOST:-alertmanager}:${ALERTMANAGER_PORT:-9093}
+    editable: true
+
+    # Alertmanager-specific configuration
+    jsonData:
+      # Implementation type
+      implementation: alertmanager
+
+      # Notification settings
+      handleGrafanaManagedAlerts: ${HANDLE_GRAFANA_ALERTS:-true}
+
+      # Alert discovery
+      alertmanagerTimeout: ${ALERTMANAGER_TIMEOUT:-30s}
+
+      # Data processing
+      dedupLabels: ${ALERTMANAGER_DEDUP_LABELS:-true}
+      dedupInterval: ${ALERTMANAGER_DEDUP_INTERVAL:-60s}
+
+      # Display options
+      showSilences: ${ALERTMANAGER_SHOW_SILENCES:-true}
+      showInhibitions: ${ALERTMANAGER_SHOW_INHIBITIONS:-true}
+
+      # Alert group settings
+      groupWait: ${ALERT_GROUP_WAIT:-10s}
+      groupInterval: ${ALERT_GROUP_INTERVAL:-10s}
+      repeatInterval: ${ALERT_REPEAT_INTERVAL:-12h}
+
+    # Secure configuration
+    secureJsonData:
+      httpHeaderValue1: ${ALERTMANAGER_AUTH_TOKEN:-}
+
+    # Version configuration
+    version: 1
+
+  # ============================================
+  # Elasticsearch Datasource (Optional)
+  # ============================================
+  - name: Elasticsearch
+    type: elasticsearch
+    access: proxy
+    url: http://${ES_HOST:-elasticsearch}:${ES_PORT:-9200}
+    database: ${ES_INDEX_PATTERN:-logs-*}
+    editable: true
+
+    # Elasticsearch-specific configuration
+    jsonData:
+      # Time field configuration
+      timeField: ${ES_TIME_FIELD:-@timestamp}
+      timeInterval: ${ES_TIME_INTERVAL:-1m}
+
+      # Query configuration
+      esVersion: ${ES_VERSION:-7.0.0}
+      maxConcurrentShardRequests: ${ES_MAX_SHARDS:-256}
+      logLevelField: ${ES_LOG_LEVEL:-level}
+      logMessageField: ${ES_LOG_MESSAGE:-message}
+
+      # Data frame configuration
+      dataFrameConfig:
+        maxLines: ${ES_MAX_LINES:-500}
+        timeout: ${ES_QUERY_TIMEOUT:-30s}
+
+      # Show fields
+      showMetrics: ${ES_SHOW_METRICS:-true}
+      showTimeSeries: ${ES_SHOW_TIME_SERIES:-true}
+
+      # Index pattern
+      maxConcurrentBatches: ${ES_MAX_BATCHES:-1}
+
+    # Secure configuration
+    secureJsonData:
+      username: ${ES_USERNAME:-}
+      password: ${ES_PASSWORD:-}
+
+    # Version configuration
+    version: 1
+
+  # ============================================
+  # PostgreSQL Datasource (Optional)
+  # ============================================
+  - name: PostgreSQL
+    type: postgres
+    access: proxy
+    url: ${POSTGRES_HOST:-postgres}:${POSTGRES_PORT:-5432}
+    database: ${POSTGRES_DATABASE:-grafana}
+    user: ${POSTGRES_USER:-grafana}
+    editable: true
+
+    # PostgreSQL-specific configuration
+    jsonData:
+      # SSL mode
+      sslmode: ${POSTGRES_SSL_MODE:-disable}
+
+      # Time zone
+      timescaledb: ${POSTGRES_TIMESCALEDB:-false}
+      postgresVersion: ${POSTGRES_VERSION:-1200}
+
+      # Connection pool
+      maxOpenConns: ${POSTGRES_MAX_CONNS:-10}
+      maxIdleConns: ${POSTGRES_MAX_IDLE:-2}
+      connMaxLifetime: ${POSTGRES_CONN_MAX_LIFETIME:-14400}
+
+      # Query options
+      maxIdleConnsAuto: ${POSTGRES_MAX_IDLE_AUTO:-true}
+
+    # Secure configuration
+    secureJsonData:
+      password: ${POSTGRES_PASSWORD:-}
+
+    # Version configuration
+    version: 1
+
+  # ============================================
+  # InfluxDB Datasource (Optional)
+  # ============================================
+  - name: InfluxDB
+    type: influxdb
+    access: proxy
+    url: http://${INFLUX_HOST:-influx}:${INFLUX_PORT:-8086}
+    database: ${INFLUX_DATABASE:-telegraf}
+    editable: true
+
+    # InfluxDB-specific configuration
+    jsonData:
+      # Time interval
+      timeInterval: ${INFLUX_TIME_INTERVAL:-10s}
+
+      # Flux configuration
+      fluxVersion: ${INFLUX_FLUX_VERSION:-}
+
+      # Query options
+      httpMode: ${INFLUX_HTTP_MODE:-POST}
+      maxDataPoints: ${INFLUX_MAX_DATA_POINTS:-1000}
+
+      # Bucket configuration
+      bucket: ${INFLUX_BUCKET:-default}
+
+    # Secure configuration
+    secureJsonData:
+      httpHeaderValue1: ${INFLUX_AUTH_TOKEN:-}
+
+    # Version configuration
+    version: 1
+
+# Datasource deletion policy
+deleteDatasources: []
+  # Uncomment to delete datasources:
+  # - name: OldDatasource
+  #   orgId: 1

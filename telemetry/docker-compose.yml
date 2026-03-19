@@ -1,0 +1,279 @@
+version: '3.8'
+
+# Production-grade monitoring stack orchestration
+# Components: Grafana, Prometheus, Loki, Promtail, Node Exporter, MongoDB, MongoDB Exporter
+# All configurable values use environment variables - see .env.example for documentation
+
+services:
+  # Grafana - Visualization and Dashboard Platform
+  grafana:
+    image: grafana/grafana:${GRAFANA_VERSION:-11.1.0}
+    container_name: grafana
+    restart: unless-stopped
+    ports:
+      - "${GRAFANA_PORT:-4101}:3000"
+    volumes:
+      - ${GRAFANA_DATA_PATH:-${PROJECT_ROOT}/data/grafana}:/var/lib/grafana
+      - ${GRAFANA_CONFIG_PATH:-${PROJECT_ROOT}/config/grafana-provisioning}:/etc/grafana/provisioning:ro
+    environment:
+      # Security configuration
+      GF_SECURITY_ADMIN_USER: ${GF_SECURITY_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GF_SECURITY_ADMIN_PASSWORD}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_SERVER_ROOT_URL: ${GF_SERVER_ROOT_URL:-http://localhost:${GRAFANA_PORT:-4101}}
+
+      # Data source auto-provisioning
+      GF_INSTALL_PLUGINS: ${GF_INSTALL_PLUGINS:-grafana-piechart-panel}
+      GF_ANONYMOUS_ENABLED: ${GF_ANONYMOUS_ENABLED:-false}
+
+      # Performance tuning
+      GF_LOG_LEVEL: ${GF_LOG_LEVEL:-info}
+      GF_METRICS_ENABLED: "true"
+    networks:
+      - ${NETWORK_NAME:-monitor-net}
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000/api/health"]
+      interval: ${GRAFANA_HEALTHCHECK_INTERVAL:-30s}
+      timeout: ${GRAFANA_HEALTHCHECK_TIMEOUT:-10s}
+      retries: ${GRAFANA_HEALTHCHECK_RETRIES:-3}
+      start_period: ${GRAFANA_HEALTHCHECK_START_PERIOD:-60s}
+    depends_on:
+      prometheus:
+        condition: service_healthy
+      loki:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: '${GRAFANA_CPU_LIMIT:-1.0}'
+          memory: ${GRAFANA_MEMORY_LIMIT:-512M}
+        reservations:
+          cpus: '${GRAFANA_CPU_RESERVATION:-0.5}'
+          memory: ${GRAFANA_MEMORY_RESERVATION:-256M}
+    labels:
+      - "com.telemetry.service=grafana"
+      - "com.telemetry.type=visualization"
+
+  # Prometheus - Metrics Collection and Storage
+  prometheus:
+    image: prom/prometheus:${PROMETHEUS_VERSION:-v2.54.1}
+    container_name: prometheus
+    restart: unless-stopped
+    ports:
+      - "${PROMETHEUS_PORT:-4102}:9090"
+    volumes:
+      - ${PROMETHEUS_DATA_PATH:-${PROJECT_ROOT}/data/prometheus}:/prometheus
+      - ${PROMETHEUS_CONFIG_PATH:-${PROJECT_ROOT}/config/prometheus.yml}:/etc/prometheus/prometheus.yml:ro
+      - ${PROMETHEUS_FILE_SD_PATH:-${PROJECT_ROOT}/config/prometheus-file-sd}:/etc/prometheus/file_sd:ro
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=${PROMETHEUS_RETENTION:-15d}'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--web.enable-lifecycle'
+      - '--web.enable-admin-api'
+    networks:
+      - ${NETWORK_NAME:-monitor-net}
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:9090/-/healthy"]
+      interval: ${PROMETHEUS_HEALTHCHECK_INTERVAL:-30s}
+      timeout: ${PROMETHEUS_HEALTHCHECK_TIMEOUT:-10s}
+      retries: ${PROMETHEUS_HEALTHCHECK_RETRIES:-3}
+      start_period: ${PROMETHEUS_HEALTHCHECK_START_PERIOD:-30s}
+    deploy:
+      resources:
+        limits:
+          cpus: '${PROMETHEUS_CPU_LIMIT:-2.0}'
+          memory: ${PROMETHEUS_MEMORY_LIMIT:-2G}
+        reservations:
+          cpus: '${PROMETHEUS_CPU_RESERVATION:-1.0}'
+          memory: ${PROMETHEUS_MEMORY_RESERVATION:-1G}
+    labels:
+      - "com.telemetry.service=prometheus"
+      - "com.telemetry.type=metrics-storage"
+
+  # Loki - Log Aggregation and Storage
+  loki:
+    image: grafana/loki:${LOKI_VERSION:-2.9.8}
+    container_name: loki
+    restart: unless-stopped
+    ports:
+      - "${LOKI_PORT:-4103}:3100"
+    volumes:
+      - ${LOKI_DATA_PATH:-${PROJECT_ROOT}/data/loki}:/loki
+      - ${LOKI_CONFIG_PATH:-${PROJECT_ROOT}/config/loki-config.yml}:/etc/loki/local-config.yaml:ro
+    command: -config.file=/etc/loki/local-config.yaml
+    networks:
+      - ${NETWORK_NAME:-monitor-net}
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3100/ready"]
+      interval: ${LOKI_HEALTHCHECK_INTERVAL:-30s}
+      timeout: ${LOKI_HEALTHCHECK_TIMEOUT:-10s}
+      retries: ${LOKI_HEALTHCHECK_RETRIES:-3}
+      start_period: ${LOKI_HEALTHCHECK_START_PERIOD:-30s}
+    depends_on:
+      - promtail
+    deploy:
+      resources:
+        limits:
+          cpus: '${LOKI_CPU_LIMIT:-1.0}'
+          memory: ${LOKI_MEMORY_LIMIT:-1G}
+        reservations:
+          cpus: '${LOKI_CPU_RESERVATION:-0.5}'
+          memory: ${LOKI_MEMORY_RESERVATION:-512M}
+    labels:
+      - "com.telemetry.service=loki"
+      - "com.telemetry.type=log-storage"
+
+  # Promtail - Log Collection Agent
+  promtail:
+    image: grafana/promtail:${PROMTAIL_VERSION:-2.9.8}
+    container_name: promtail
+    restart: unless-stopped
+    volumes:
+      - ${PROMTAIL_CONFIG_PATH:-${PROJECT_ROOT}/config/promtail-config.yml}:/etc/promtail/config.yml:ro
+      - ${HOST_LOGS_PATH:-/var/log}:/var/log:ro
+      - ${PROJECT_ROOT}/logs:/telemetry/logs:ro
+    command: -config.file=/etc/promtail/config.yml
+    networks:
+      - ${NETWORK_NAME:-monitor-net}
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:9080/ready"]
+      interval: ${PROMTAIL_HEALTHCHECK_INTERVAL:-30s}
+      timeout: ${PROMTAIL_HEALTHCHECK_TIMEOUT:-10s}
+      retries: ${PROMTAIL_HEALTHCHECK_RETRIES:-3}
+      start_period: ${PROMTAIL_HEALTHCHECK_START_PERIOD:-30s}
+    deploy:
+      resources:
+        limits:
+          cpus: '${PROMTAIL_CPU_LIMIT:-0.5}'
+          memory: ${PROMTAIL_MEMORY_LIMIT:-256M}
+        reservations:
+          cpus: '${PROMTAIL_CPU_RESERVATION:-0.25}'
+          memory: ${PROMTAIL_MEMORY_RESERVATION:-128M}
+    labels:
+      - "com.telemetry.service=promtail"
+      - "com.telemetry.type=log-collector"
+
+  # Node Exporter - System Metrics Exporter
+  node-exporter:
+    image: prom/node-exporter:${NODE_EXPORTER_VERSION:-v1.8.2}
+    container_name: node-exporter
+    restart: unless-stopped
+    ports:
+      - "${NODE_EXPORTER_PORT:-9100}:9100"
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+    command:
+      - '--path.procfs=/host/proc'
+      - '--path.rootfs=/rootfs'
+      - '--path.sysfs=/host/sys'
+      - '--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)'
+    networks:
+      - ${NETWORK_NAME:-monitor-net}
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:9100/metrics"]
+      interval: ${NODE_EXPORTER_HEALTHCHECK_INTERVAL:-30s}
+      timeout: ${NODE_EXPORTER_HEALTHCHECK_TIMEOUT:-10s}
+      retries: ${NODE_EXPORTER_HEALTHCHECK_RETRIES:-3}
+      start_period: ${NODE_EXPORTER_HEALTHCHECK_START_PERIOD:-10s}
+    deploy:
+      resources:
+        limits:
+          cpus: '${NODE_EXPORTER_CPU_LIMIT:-0.5}'
+          memory: ${NODE_EXPORTER_MEMORY_LIMIT:-256M}
+        reservations:
+          cpus: '${NODE_EXPORTER_CPU_RESERVATION:-0.25}'
+          memory: ${NODE_EXPORTER_MEMORY_RESERVATION:-128M}
+    labels:
+      - "com.telemetry.service=node-exporter"
+      - "com.telemetry.type=system-metrics"
+
+  # MongoDB - NoSQL Database
+  mongodb:
+    image: mongo:${MONGODB_VERSION:-7.0.12}
+    container_name: mongodb
+    restart: unless-stopped
+    ports:
+      - "${MONGODB_PORT:-27017}:27017"
+    volumes:
+      - ${MONGODB_DATA_PATH:-${PROJECT_ROOT}/data/mongodb}:/data/db
+      - ${MONGODB_CONFIG_PATH:-${PROJECT_ROOT}/config/mongod.conf}:/etc/mongod.conf:ro
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_INITDB_ROOT_USERNAME:-admin}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_INITDB_ROOT_PASSWORD}
+      MONGO_INITDB_ROOT_DATABASE: ${MONGO_INITDB_ROOT_DATABASE:-admin}
+    command: mongod --config /etc/mongod.conf
+    networks:
+      - ${NETWORK_NAME:-monitor-net}
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: ${MONGODB_HEALTHCHECK_INTERVAL:-30s}
+      timeout: ${MONGODB_HEALTHCHECK_TIMEOUT:-10s}
+      retries: ${MONGODB_HEALTHCHECK_RETRIES:-3}
+      start_period: ${MONGODB_HEALTHCHECK_START_PERIOD:-60s}
+    deploy:
+      resources:
+        limits:
+          cpus: '${MONGODB_CPU_LIMIT:-2.0}'
+          memory: ${MONGODB_MEMORY_LIMIT:-2G}
+        reservations:
+          cpus: '${MONGODB_CPU_RESERVATION:-1.0}'
+          memory: ${MONGODB_MEMORY_RESERVATION:-1G}
+    labels:
+      - "com.telemetry.service=mongodb"
+      - "com.telemetry.type=database"
+
+  # MongoDB Exporter - MongoDB Metrics Exporter
+  mongodb-exporter:
+    image: percona/mongodb_exporter:${MONGODB_EXPORTER_VERSION:-0.40.0}
+    container_name: mongodb-exporter
+    restart: unless-stopped
+    ports:
+      - "${MONGODB_EXPORTER_PORT:-9214}:9214"
+    environment:
+      MONGODB_URI: mongodb://${MONGO_INITDB_ROOT_USERNAME:-admin}:${MONGO_INITDB_ROOT_PASSWORD}@mongodb:27017
+      MONGODB_EXPORTER_CONNECT_URI: mongodb://${MONGO_INITDB_ROOT_USERNAME:-admin}:${MONGO_INITDB_ROOT_PASSWORD}@mongodb:27017
+      MONGODB_EXPORTER_COLLECT_DATABASE: "true"
+      MONGODB_EXPORTER_COLLECT_COLLECTION: "true"
+      MONGODB_EXPORTER_COLLECT_TOPMETRICS: "true"
+      MONGODB_EXPORTER_COLLECT_INDEXSTATS: "true"
+    networks:
+      - ${NETWORK_NAME:-monitor-net}
+    depends_on:
+      mongodb:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:9214/metrics"]
+      interval: ${MONGODB_EXPORTER_HEALTHCHECK_INTERVAL:-30s}
+      timeout: ${MONGODB_EXPORTER_HEALTHCHECK_TIMEOUT:-10s}
+      retries: ${MONGODB_EXPORTER_HEALTHCHECK_RETRIES:-3}
+      start_period: ${MONGODB_EXPORTER_HEALTHCHECK_START_PERIOD:-30s}
+    deploy:
+      resources:
+        limits:
+          cpus: '${MONGODB_EXPORTER_CPU_LIMIT:-0.5}'
+          memory: ${MONGODB_EXPORTER_MEMORY_LIMIT:-256M}
+        reservations:
+          cpus: '${MONGODB_EXPORTER_CPU_RESERVATION:-0.25}'
+          memory: ${MONGODB_EXPORTER_MEMORY_RESERVATION:-128M}
+    labels:
+      - "com.telemetry.service=mongodb-exporter"
+      - "com.telemetry.type=database-metrics"
+
+networks:
+  monitor-net:
+    name: ${NETWORK_NAME:-monitor-net}
+    driver: bridge
+    external: ${NETWORK_EXTERNAL:-false}
+
+# Configuration notes:
+# - All paths use ${PROJECT_ROOT} environment variable for dynamic deployment
+# - Default project root is /opt/monitoring-stack or $HOME/telemetry depending on user
+# - Resource limits prevent containers from consuming all system resources
+# - Health checks ensure services are ready before dependent services start
+# - Labels enable easy filtering and management of telemetry services
+# - External network flag allows reusing existing network if needed

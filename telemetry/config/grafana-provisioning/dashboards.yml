@@ -1,0 +1,334 @@
+# Grafana Dashboard Provisioning
+# Production-ready dashboard configuration
+
+apiVersion: 1
+
+providers:
+  # ============================================
+  # System Monitoring Dashboards
+  # ============================================
+  - name: 'System Monitoring'
+    orgId: 1
+    folder: 'System Monitoring'
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: ${GRAFANA_DASHBOARD_UPDATE_INTERVAL:-10s}
+    allowUiUpdates: true
+    options:
+      path: ${GRAFANA_PROVISIONING_PATH:-/etc/grafana/provisioning/dashboards}/system
+      foldersFromFilesStructure: true
+
+  # ============================================
+  # Log Monitoring Dashboards
+  # ============================================
+  - name: 'Log Monitoring'
+    orgId: 1
+    folder: 'Log Monitoring'
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: ${GRAFANA_DASHBOARD_UPDATE_INTERVAL:-10s}
+    allowUiUpdates: true
+    options:
+      path: ${GRAFANA_PROVISIONING_PATH:-/etc/grafana/provisioning/dashboards}/logs
+      foldersFromFilesStructure: true
+
+  # ============================================
+  # Database Monitoring Dashboards
+  # ============================================
+  - name: 'Database Monitoring'
+    orgId: 1
+    folder: 'Database Monitoring'
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: ${GRAFANA_DASHBOARD_UPDATE_INTERVAL:-10s}
+    allowUiUpdates: true
+    options:
+      path: ${GRAFANA_PROVISIONING_PATH:-/etc/grafana/provisioning/dashboards}/databases
+      foldersFromFilesStructure: true
+
+  # ============================================
+  # API Monitoring Dashboards
+  # ============================================
+  - name: 'API Monitoring'
+    orgId: 1
+    folder: 'API Monitoring'
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: ${GRAFANA_DASHBOARD_UPDATE_INTERVAL:-10s}
+    allowUiUpdates: true
+    options:
+      path: ${GRAFANA_PROVISIONING_PATH:-/etc/grafana/provisioning/dashboards}/apis
+      foldersFromFilesStructure: true
+
+  # ============================================
+  # Security Monitoring Dashboards
+  # ============================================
+  - name: 'Security Monitoring'
+    orgId: 1
+    folder: 'Security Monitoring'
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: ${GRAFANA_DASHBOARD_UPDATE_INTERVAL:-10s}
+    allowUiUpdates: true
+    options:
+      path: ${GRAFANA_PROVISIONING_PATH:-/etc/grafana/provisioning/dashboards}/security
+      foldersFromFilesStructure: true
+
+  # ============================================
+  # Custom Application Dashboards
+  # ============================================
+  - name: 'Custom Dashboards'
+    orgId: 1
+    folder: 'Custom Applications'
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: ${GRAFANA_DASHBOARD_UPDATE_INTERVAL:-10s}
+    allowUiUpdates: true
+    options:
+      path: ${GRAFANA_PROVISIONING_PATH:-/etc/grafana/provisioning/dashboards}/custom
+      foldersFromFilesStructure: true
+
+  # ============================================
+  # Community Dashboards (Imported)
+  # ============================================
+  - name: 'Grafana Community Dashboards'
+    orgId: 1
+    folder: 'Community'
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: ${GRAFANA_DASHBOARD_UPDATE_INTERVAL:-10s}
+    allowUiUpdates: true
+    options:
+      path: ${GRAFANA_PROVISIONING_PATH:-/etc/grafana/provisioning/dashboards}/community
+      foldersFromFilesStructure: true
+
+  # ============================================
+  # Alert Management Dashboards
+  # ============================================
+  - name: 'Alert Management'
+    orgId: 1
+    folder: 'Alert Management'
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: ${GRAFANA_DASHBOARD_UPDATE_INTERVAL:-10s}
+    allowUiUpdates: true
+    options:
+      path: ${GRAFANA_PROVISIONING_PATH:-/etc/grafana/provisioning/dashboards}/alerts
+      foldersFromFilesStructure: true
+
+  # ============================================
+  # Distributed Tracing Dashboards
+  # ============================================
+  - name: 'Distributed Tracing'
+    orgId: 1
+    folder: 'Distributed Tracing'
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: ${GRAFANA_DASHBOARD_UPDATE_INTERVAL:-10s}
+    allowUiUpdates: true
+    options:
+      path: ${GRAFANA_PROVISIONING_PATH:-/etc/grafana/provisioning/dashboards}/tracing
+      foldersFromFilesStructure: true
+
+  # ============================================
+  # Infrastructure Overview Dashboards
+  # ============================================
+  - name: 'Infrastructure Overview'
+    orgId: 1
+    folder: 'Infrastructure'
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: ${GRAFANA_DASHBOARD_UPDATE_INTERVAL:-10s}
+    allowUiUpdates: true
+    options:
+      path: ${GRAFANA_PROVISIONING_PATH:-/etc/grafana/provisioning/dashboards}/infrastructure
+      foldersFromFilesStructure: true
+
+# ============================================
+# Dashboard Import Configuration
+# ============================================
+# Note: To automatically import community dashboards, create JSON files
+# in the respective directories defined above. Each file should contain
+# a valid Grafana dashboard JSON.
+
+# Example directory structure:
+# /etc/grafana/provisioning/dashboards/
+# ├── system/
+# │   ├── node-exporter-full.json
+# │   ├── prometheus-stats.json
+# │   └── docker-containers.json
+# ├── logs/
+# │   ├── loki-logs.json
+# │   ├── auth-security.json
+# │   └── application-logs.json
+# ├── databases/
+# │   ├── mongodb.json
+# │   └── postgresql.json
+# ├── apis/
+# │   ├── rest-api-monitoring.json
+# │   └── grpc-api-monitoring.json
+# ├── security/
+# │   ├── ssh-security.json
+# │   ├── audit-logs.json
+# │   └── intrusion-detection.json
+# ├── community/
+# │   ├── 1860-node-exporter-full.json
+# │   ├── 13131-host-overview.json
+# │   └── 11529-loki-dashboard.json
+# ├── alerts/
+# │   ├── alertmanager-overview.json
+# │   └── notification-channels.json
+# ├── tracing/
+# │   ├── tempo-overview.json
+# │   └── service-dependencies.json
+# └── infrastructure/
+#     ├── cluster-overview.json
+#     └── resource-utilization.json
+
+# ============================================
+# Recommended Community Dashboards to Import
+# ============================================
+# The following community dashboards are highly recommended:
+#
+# System Monitoring:
+# - ID: 1860 - Node Exporter Full
+# - ID: 13131 - Host Overview
+# - ID: 405 - Prometheus Stats
+# - ID: 4279 - Docker and system monitoring
+#
+# Log Monitoring:
+# - ID: 11529 - Loki Dashboard
+# - ID: 12019 - Loki Logs Dashboard
+# - ID: 14031 - Prometheus Loki Logs Dashboard
+#
+# Database Monitoring:
+# - ID: 257 - MongoDB Exporter Dashboard
+# - ID: 9628 - PostgreSQL Database
+# - ID: 11835 - Redis Dashboard
+#
+# Security Monitoring:
+# - ID: 14198 - SSH Security Dashboard
+# - ID: 10000 - Linux Security
+# - ID: 7362 - Audit Logs Dashboard
+#
+# API Monitoring:
+# - ID: 10991 - Prometheus Blackbox Exporter
+# - ID: 7249 - API Performance
+#
+# Tracing:
+# - ID: 10271 - Tempo Dashboard
+# - ID: 10429 - Service Dependencies Graph
+#
+# Alerting:
+# - ID: 4299 - Alertmanager Overview
+# - ID: 9578 - Alertmanager Webhook Dashboard
+
+# ============================================
+# Dashboard Variable Configuration
+# ============================================
+# Dashboards should use the following variables for consistency:
+#
+# - $datasource: Prometheus datasource (default)
+# - $loki_datasource: Loki datasource
+# - $tempo_datasource: Tempo datasource
+# - $cluster: Cluster name
+# - $environment: Environment (production/staging/development)
+# - $instance: Instance/hostname
+# - $job: Job name
+#
+# Example variable in dashboard JSON:
+# {
+#   "name": "datasource",
+#   "type": "datasource",
+#   "query": "prometheus",
+#   "refresh": 1
+# }
+
+# ============================================
+# Dashboard Best Practices
+# ============================================
+#
+# 1. Folder Organization:
+#    - Group dashboards by function (system, logs, databases, etc.)
+#    - Use clear, descriptive folder names
+#    - Avoid deep folder structures
+#
+# 2. Dashboard Naming:
+#    - Use descriptive names: "System Overview", "MongoDB Performance"
+#    - Include system type if applicable: "Linux System Overview"
+#    - Avoid generic names like "Dashboard 1"
+#
+# 3. Dashboard Annotations:
+#    - Include description of what the dashboard monitors
+#    - Document required datasources and variables
+#    - List the author and date
+#
+# 4. Panel Organization:
+#    - Group related panels together
+#    - Use row titles for organization
+#    - Keep dashboard scroll-free if possible
+#    - Use collapsed rows for less-critical panels
+#
+# 5. Query Optimization:
+#    - Use $__interval for proper time series resolution
+#    - Limit time ranges with $__timeFilter
+#   - Use query variables to reduce panel duplication
+#
+# 6. Visualization:
+#    - Choose appropriate chart types for data
+#    - Use color coding for status panels
+#    - Add thresholds for visual alerts
+#    - Include tooltips with context
+#
+# 7. Dashboard Variables:
+#   - Make dashboards reusable with variables
+#   - Use multi-value variables where appropriate
+#   - Include "All" option for variables
+#   - Use regex for variable filtering
+#
+# 8. Alerts:
+#   - Configure alerts for critical metrics
+#   - Use appropriate thresholds
+#   - Include notification channels
+#   - Document alert conditions
+
+# ============================================
+# Dashboard Auto-Import Script
+# ============================================
+# To automatically import community dashboards, use this script:
+#
+# #!/bin/bash
+# DASHBOARDS=(
+#   "1860:system/node-exporter-full.json"
+#   "13131:system/host-overview.json"
+#   "11529:logs/loki-dashboard.json"
+#   "257:databases/mongodb.json"
+#   "14198:security/ssh-security.json"
+# )
+#
+# for DASHBOARD in "${DASHBOARDS[@]}"; do
+#   IFS=':' read -r ID PATH <<< "$DASHBOARD"
+#   curl -s "https://grafana.com/api/dashboards/$ID/revisions/latest/download" \
+#     > "/etc/grafana/provisioning/dashboards/$PATH"
+# done
+
+# ============================================
+# Dashboard Updates
+# ============================================
+# Dashboards are automatically reloaded every 10 seconds by default.
+# To manually trigger a reload:
+#   curl -X POST http://grafana:3000/api/admin/provisioning/dashboards/reload
+#
+# To reload a specific provider:
+#   curl -X POST http://grafana:3000/api/admin/provisioning/dashboards/reload/ProviderName
+
+# ============================================
+# Dashboard Backup
+# ============================================
+# Backup all dashboards regularly:
+#   grafana-cli admin export-dashboards /path/to/backup
+#
+# Or use the API:
+#   curl http://admin:password@grafana:3000/api/search?query= \
+#     | jq -r '.[] | .uri' | \
+#     xargs -I {} curl http://admin:password@grafana:3000/api/dashboards/uid/{}

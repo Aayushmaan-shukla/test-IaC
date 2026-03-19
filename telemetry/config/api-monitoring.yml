@@ -1,0 +1,373 @@
+##############################################################################
+# API Monitoring Configuration Template
+#
+# This file serves as a reference for configuring API monitoring targets.
+# In production, APIs are added via individual JSON files in the
+# prometheus-file-sd/ directory (see examples below).
+#
+# This template demonstrates the configuration format and available options.
+##############################################################################
+
+# This is a TEMPLATE file. Do not modify directly.
+# To add new APIs, use the helper script: ./scripts/add-api-monitoring.sh
+# Or create JSON files manually in: config/prometheus-file-sd/
+
+##############################################################################
+# Configuration Examples
+##############################################################################
+
+# Example 1: Simple REST API with no authentication
+# File: config/prometheus-file-sd/api-rest-example.json
+{
+  "targets": ["api.example.com:8080"],
+  "labels": {
+    "job": "rest-api-example",
+    "metrics_path": "/metrics",
+    "env": "production"
+  }
+}
+
+# Example 2: API with Basic Authentication
+# File: config/prometheus-file-sd/api-basic-auth.json
+{
+  "targets": ["api.example.com:8080"],
+  "labels": {
+    "job": "api-with-auth",
+    "metrics_path": "/metrics",
+    "env": "production",
+    "auth_type": "basic",
+    "auth_username": "admin",
+    "auth_password": "your-password-here"
+  }
+}
+
+# Example 3: API with Bearer Token
+# File: config/prometheus-file-sd/api-bearer-auth.json
+{
+  "targets": ["api.example.com:8080"],
+  "labels": {
+    "job": "api-with-bearer",
+    "metrics_path": "/metrics",
+    "env": "production",
+    "auth_type": "bearer",
+    "auth_token": "your-bearer-token-here"
+  }
+}
+
+# Example 4: Multiple API Instances (Load Balanced)
+# File: config/prometheus-file-sd/api-load-balanced.json
+{
+  "targets": [
+    "api1.example.com:8080",
+    "api2.example.com:8080",
+    "api3.example.com:8080"
+  ],
+  "labels": {
+    "job": "load-balanced-api",
+    "metrics_path": "/metrics",
+    "env": "production"
+  }
+}
+
+# Example 5: API with Custom Labels
+# File: config/prometheus-file-sd/api-custom-labels.json
+{
+  "targets": ["api.example.com:8080"],
+  "labels": {
+    "job": "labeled-api",
+    "metrics_path": "/metrics",
+    "env": "production",
+    "team": "platform",
+    "service": "user-service",
+    "region": "us-east-1",
+    "tier": "backend"
+  }
+}
+
+# Example 6: API with Custom Metrics Path
+# File: config/prometheus-file-sd/api-custom-path.json
+{
+  "targets": ["api.example.com:8080"],
+  "labels": {
+    "job": "api-custom-path",
+    "metrics_path": "/api/v1/metrics",
+    "env": "production"
+  }
+}
+
+# Example 7: Internal API (Docker Network)
+# File: config/prometheus-file-sd/api-internal.json
+{
+  "targets": ["api-service:8080"],
+  "labels": {
+    "job": "internal-api",
+    "metrics_path": "/metrics",
+    "env": "production"
+  }
+}
+
+# Example 8: API with Different Port
+# File: config/prometheus-file-sd/api-different-port.json
+{
+  "targets": ["api.example.com:9000"],
+  "labels": {
+    "job": "api-port-9000",
+    "metrics_path": "/metrics",
+    "env": "production"
+  }
+}
+
+##############################################################################
+# Available Configuration Options
+##############################################################################
+
+# Required Fields:
+#   - targets: Array of host:port strings
+#   - labels.job: Name for the monitoring job
+#
+# Optional Labels:
+#   - metrics_path: Path to metrics endpoint (default: /metrics)
+#   - env: Environment (e.g., production, staging, development)
+#   - auth_type: Authentication method (none, basic, bearer)
+#   - auth_username: Username for basic auth
+#   - auth_password: Password for basic auth
+#   - auth_token: Token for bearer auth
+#   - team: Team responsible for the API
+#   - service: Service name
+#   - region: Geographic region
+#   - tier: Application tier (frontend, backend, database)
+#   - instance: Instance identifier
+#   - datacenter: Datacenter name
+#
+# Scrape Configuration (via relabeling in prometheus.yml):
+#   - scrape_interval: How often to scrape (default: 15s)
+#   - scrape_timeout: Scrape timeout (default: 10s)
+#   - scheme: http or https (default: http)
+
+##############################################################################
+# Common API Types and Their Metrics Endpoints
+##############################################################################
+
+# Spring Boot Actuator
+# Metrics Path: /actuator/prometheus
+# Auth: Usually requires basic auth or token
+{
+  "targets": ["spring-app.example.com:8080"],
+  "labels": {
+    "job": "spring-boot-app",
+    "metrics_path": "/actuator/prometheus",
+    "env": "production"
+  }
+}
+
+# Go App with Prometheus
+# Metrics Path: /metrics
+# Auth: Optional, depends on middleware
+{
+  "targets": ["go-app.example.com:8080"],
+  "labels": {
+    "job": "go-application",
+    "metrics_path": "/metrics",
+    "env": "production"
+  }
+}
+
+# Node.js App with prom-client
+# Metrics Path: /metrics
+# Auth: Optional, depends on middleware
+{
+  "targets": ["nodejs-app.example.com:8080"],
+  "labels": {
+    "job": "nodejs-application",
+    "metrics_path": "/metrics",
+    "env": "production"
+  }
+}
+
+# Django/Python App with django-prometheus
+# Metrics Path: /metrics
+# Auth: Usually requires authentication
+{
+  "targets": ["django-app.example.com:8080"],
+  "labels": {
+    "job": "django-application",
+    "metrics_path": "/metrics",
+    "env": "production",
+    "auth_type": "basic",
+    "auth_username": "prometheus",
+    "auth_password": "your-password"
+  }
+}
+
+# Nginx Prometheus Exporter
+# Metrics Path: /metrics
+# Auth: Usually internal-only
+{
+  "targets": ["nginx-exporter:9113"],
+  "labels": {
+    "job": "nginx-exporter",
+    "metrics_path": "/metrics",
+    "env": "production"
+  }
+}
+
+# PostgreSQL Exporter
+# Metrics Path: /metrics
+# Auth: Requires database connection string
+{
+  "targets": ["postgres-exporter:9187"],
+  "labels": {
+    "job": "postgres-exporter",
+    "metrics_path": "/metrics",
+    "env": "production"
+  }
+}
+
+# Redis Exporter
+# Metrics Path: /metrics
+# Auth: Requires Redis connection string
+{
+  "targets": ["redis-exporter:9121"],
+  "labels": {
+    "job": "redis-exporter",
+    "metrics_path": "/metrics",
+    "env": "production"
+  }
+}
+
+##############################################################################
+# Authentication Configuration Guide
+##############################################################################
+
+# No Authentication (Default)
+# Use this for internal APIs or APIs that expose metrics publicly
+{
+  "targets": ["api.example.com:8080"],
+  "labels": {
+    "job": "public-api",
+    "metrics_path": "/metrics"
+  }
+}
+
+# Basic Authentication
+# Use when API requires username/password
+# Configure Prometheus with basic auth credentials
+{
+  "targets": ["api.example.com:8080"],
+  "labels": {
+    "job": "api-basic-auth",
+    "metrics_path": "/metrics",
+    "auth_type": "basic",
+    "auth_username": "prometheus",
+    "auth_password": "secure-password"
+  }
+}
+
+# Bearer Token Authentication
+# Use when API requires token-based auth
+# Configure Prometheus with bearer token
+{
+  "targets": ["api.example.com:8080"],
+  "labels": {
+    "job": "api-bearer-auth",
+    "metrics_path": "/metrics",
+    "auth_type": "bearer",
+    "auth_token": "your-long-bearer-token-here"
+  }
+}
+
+# TLS/HTTPS Configuration
+# For APIs using HTTPS, Prometheus handles TLS automatically
+# Set the scheme label to https (optional, usually auto-detected)
+{
+  "targets": ["api.example.com:443"],
+  "labels": {
+    "job": "https-api",
+    "metrics_path": "/metrics",
+    "scheme": "https"
+  }
+}
+
+##############################################################################
+# Best Practices
+##############################################################################
+
+# 1. Use descriptive job names
+#    Good: user-service-api, payment-gateway
+#    Bad: api1, api2
+
+# 2. Always include environment label
+#    Helps separate production, staging, and development metrics
+
+# 3. Use consistent metrics_path
+#    Stick to /metrics when possible for standard endpoints
+
+# 4. Add team and service labels
+#    Helps identify ownership and organization
+
+# 5. Group related targets
+#    Multiple instances of the same API go in one file
+
+# 6. Use file names that match the API
+#    api-user-service.json, api-payment-gateway.json
+
+# 7. Test metrics endpoints before adding
+#    curl http://api.example.com:8080/metrics
+
+# 8. Monitor scrape errors
+#    Check Prometheus UI: http://localhost:4102/targets
+
+# 9. Use appropriate scrape intervals
+#    Default 15s is good for most cases
+#    Consider 30s-60s for less critical APIs
+
+# 10. Document custom metrics
+#     Create Grafana dashboards for custom application metrics
+
+##############################################################################
+# Troubleshooting
+##############################################################################
+
+# Problem: API not showing in Prometheus targets
+# Solution:
+#   - Check file is in config/prometheus-file-sd/
+#   - Verify JSON format is valid
+#   - Ensure Prometheus is running
+#   - Reload Prometheus: docker kill -s HUP prometheus
+
+# Problem: Scrape errors in Prometheus
+# Solution:
+#   - Test metrics endpoint: curl http://api.example.com:8080/metrics
+#   - Check network connectivity from container: docker exec prometheus ping api.example.com
+#   - Verify authentication credentials
+#   - Check firewall rules
+
+# Problem: Metrics not appearing in Grafana
+# Solution:
+#   - Verify Prometheus datasource is configured
+#   - Check Prometheus targets are UP
+#   - Query metrics in Prometheus UI first
+#   - Check Grafana dashboard queries
+
+# Problem: High scrape latency
+# Solution:
+#   - Check API performance
+#   - Increase scrape_interval in prometheus.yml
+#   - Add scrape_timeout label
+#   - Consider reducing number of metrics exported
+
+##############################################################################
+# Additional Resources
+##############################################################################
+
+# Prometheus File-Based Service Discovery:
+# https://prometheus.io/docs/guides/file-sd/
+
+# Prometheus Scrape Configuration:
+# https://prometheus.io/docs/prometheus/latest/configuration/configuration/#scrape_config
+
+# Prometheus Exporter Best Practices:
+# https://prometheus.io/docs/practices/instrumentation/
+
+# Helper Script Usage:
+# ./scripts/add-api-monitoring.sh --examples

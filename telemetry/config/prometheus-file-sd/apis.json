@@ -1,0 +1,41 @@
+[
+  {
+    "targets": [
+      "api-1:8080",
+      "api-2:8080"
+    ],
+    "labels": {
+      "job": "api",
+      "instance": "${HOSTNAME:-localhost}",
+      "environment": "${ENVIRONMENT:-production}",
+      "cluster": "${CLUSTER_NAME:-telemetry}",
+      "service": "user-api",
+      "api_type": "rest",
+      "version": "v1.0.0",
+      "team": "backend",
+      "tier": "frontend"
+    },
+    "scrape_interval": "15s",
+    "scrape_timeout": "10s",
+    "metrics_path": "/metrics"
+  },
+  {
+    "targets": [
+      "graphql-api:4000"
+    ],
+    "labels": {
+      "job": "graphql-api",
+      "instance": "${HOSTNAME:-localhost}",
+      "environment": "${ENVIRONMENT:-production}",
+      "cluster": "${CLUSTER_NAME:-telemetry}",
+      "service": "graphql-gateway",
+      "api_type": "graphql",
+      "version": "v2.1.0",
+      "team": "platform",
+      "tier": "backend"
+    },
+    "scrape_interval": "30s",
+    "scrape_timeout": "15s",
+    "metrics_path": "/api/metrics"
+  }
+]
